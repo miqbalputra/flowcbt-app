@@ -9,12 +9,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/flowcbt/backend/internal/audit"
 	"github.com/flowcbt/backend/internal/auth"
 	"github.com/flowcbt/backend/internal/httpx"
+	"github.com/flowcbt/backend/internal/notify"
 	"github.com/flowcbt/backend/internal/platform"
+	"github.com/flowcbt/backend/internal/user"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -62,19 +66,47 @@ func main() {
 	}
 }
 
-// mountModules memasang modul API per sprint; modul yang butuh DB membuka pool sendiri.
+// mountModules memasang seluruh modul. Autentikasi ke DB/Redis gagal → modul
+// terkait dilewati dengan peringatan; healthz tetap hijau (dev tanpa infra).
 func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
 	ctx := context.Background()
 	db, err := platform.NewDB(ctx, cfg.DatabaseURL, cfg.DatabaseSysURL)
 	if err != nil {
-		// Tanpa DB, endpoint auth tidak tersedia; API tetap hidup (healthz) untuk dev UI.
-		logger.Warn("DB tidak tersedia, endpoint auth dilewati", slog.String("error", err.Error()))
+		logger.Warn("DB tidak tersedia, endpoint tenant dilewati", slog.String("error", err.Error()))
 		return
 	}
-	store := &auth.Store{System: db.System}
-	svc := auth.NewService(store,
-		auth.NewJWTManager(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL),
-		platform.RealClock())
-	auth.NewHandler(svc).Mount(api)
-	logger.Info("modul auth terpasang")
+
+	clock := platform.RealClock()
+	jwtm := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
+	queue := notify.NewQueue(redisAddr(cfg.RedisURL), platform.NewMailerFromEnv())
+	auditw := audit.NewWriter(db.System)
+
+	// Publik + rate limit ketat: login/register/reset (PRD 9, anti brute force).
+	strict := httpx.NewRateLimit(10, time.Minute)
+	api.Group(func(pub chi.Router) {
+		pub.Use(strict.Middleware)
+		auth.NewHandler(auth.NewService(&auth.Store{System: db.System}, jwtm, clock)).Mount(pub)
+		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountPublic(pub)
+	})
+
+	// Terproteksi JWT: modul tenant (guru, dst). Modul per sprint berikutnya
+	// dipasang di sini dengan RequireRole masing-masing.
+	api.Group(func(prot chi.Router) {
+		prot.Use(auth.Middleware(jwtm))
+		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountTenant(prot)
+	})
+
+	logger.Info("modul terpasang", slog.String("modules", "auth,user"))
+}
+
+// redisAddr mengubah redis://host:port/db menjadi host:port.
+func redisAddr(u string) string {
+	h := strings.TrimPrefix(u, "redis://")
+	if i := strings.Index(h, "/"); i >= 0 {
+		h = h[:i]
+	}
+	if h == "" {
+		h = "localhost:6379"
+	}
+	return h
 }

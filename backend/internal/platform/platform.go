@@ -76,6 +76,12 @@ func NewLogger(cfg Config) *slog.Logger {
 		With(slog.String("service", "flowcbt-api"))
 }
 
+// NonProduction melaporkan lingkungan non-production (dev/staging): dipakai
+// untuk mengaktifkan jalur bantu seperti token verifikasi di respons API.
+func NonProduction() bool {
+	return os.Getenv("ENV") != "production"
+}
+
 // Clock dipisah agar logika waktu (deadline attempt, retensi) mudah diuji.
 type Clock interface {
 	Now() time.Time
