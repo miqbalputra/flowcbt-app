@@ -1,0 +1,54 @@
+/* Token tema FlowCBT (PRD 11): light/dark via CSS variables, kontras WCAG AA.
+   Aplikasi menaruh class 'dark' di <html> bila tema gelap aktif. */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-muted: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-border: #e2e4e9;
+  --color-text: #1a1d23;
+  --color-text-muted: #5b6270;
+  --color-primary: #2f6fed;
+  --color-primary-hover: #245bd0;
+  --color-on-primary: #ffffff;
+  --color-danger: #d92d20;
+  --color-warning: #b54708;
+  --color-success: #067647;
+  --color-info: #175cd3;
+  --radius: 0.5rem;
+}
+
+html.dark {
+  --color-bg: #101319;
+  --color-bg-muted: #171b23;
+  --color-surface: #1b202b;
+  --color-border: #2c3341;
+  --color-text: #edeff2;
+  --color-text-muted: #9aa3b2;
+  --color-primary: #6b95f7;
+  --color-primary-hover: #86a9f9;
+  --color-on-primary: #0b1220;
+  --color-danger: #f97066;
+  --color-warning: #fdba8c;
+  --color-success: #75e0a7;
+  --color-info: #84caff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+}
+
+/* Target sentuh minimum 44x44 px (PRD 11.2) */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}

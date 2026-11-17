@@ -1,0 +1,10 @@
+DROP VIEW tenant_usage;
+DROP FUNCTION purge_tenant_data(uuid);
+DROP FUNCTION tenant_object_keys(uuid);
+DROP VIEW tenants_due_for_purge;
+DROP FUNCTION tenant_retention_start(uuid);
+DROP TABLE platform_settings;
+DROP TABLE file_jobs;
+DROP TABLE notice_log;
+DROP TABLE notifications;
+DROP TABLE audit_logs;

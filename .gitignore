@@ -1,0 +1,25 @@
+# Go
+backend/bin/
+*.exe
+*.test
+*.out
+
+# Node / pnpm
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+coverage/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

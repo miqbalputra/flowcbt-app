@@ -1,0 +1,9 @@
+DROP TABLE questions;
+DROP TABLE stimuli;
+ALTER TABLE question_sets
+  DROP CONSTRAINT qs_draft_fk,
+  DROP CONSTRAINT qs_published_fk;
+DROP TABLE question_set_versions;
+DROP TABLE question_set_shares;
+DROP TABLE question_sets;
+DROP TABLE media_assets;
