@@ -15,9 +15,11 @@ import (
 
 	"github.com/flowcbt/backend/internal/audit"
 	"github.com/flowcbt/backend/internal/auth"
+	"github.com/flowcbt/backend/internal/classroom"
 	"github.com/flowcbt/backend/internal/httpx"
 	"github.com/flowcbt/backend/internal/notify"
 	"github.com/flowcbt/backend/internal/platform"
+	"github.com/flowcbt/backend/internal/student"
 	"github.com/flowcbt/backend/internal/user"
 	"github.com/go-chi/chi/v5"
 )
@@ -89,14 +91,18 @@ func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
 		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountPublic(pub)
 	})
 
-	// Terproteksi JWT: modul tenant (guru, dst). Modul per sprint berikutnya
-	// dipasang di sini dengan RequireRole masing-masing.
+	// Terproteksi JWT: modul tenant. RBAC di satu tempat: owner/guru boleh
+	// kelas & siswa (matriks 2.1); detil per-kelas guru disempurnakan di S5+.
 	api.Group(func(prot chi.Router) {
 		prot.Use(auth.Middleware(jwtm))
+		prot.Use(auth.RequireRole("owner", "teacher"))
+		classroomHandler := classroom.NewHandler(classroom.NewStore(db), auditw)
+		classroomHandler.Mount(prot)
+		student.NewHandler(student.NewStore(db), auditw).Mount(prot)
 		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountTenant(prot)
 	})
 
-	logger.Info("modul terpasang", slog.String("modules", "auth,user"))
+	logger.Info("modul terpasang", slog.String("modules", "auth,user,classroom,student"))
 }
 
 // redisAddr mengubah redis://host:port/db menjadi host:port.

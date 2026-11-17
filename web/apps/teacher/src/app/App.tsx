@@ -5,6 +5,8 @@ import Layout from "./Layout";
 import LoginPage from "../features/auth/LoginPage";
 import RegisterPage from "../features/auth/RegisterPage";
 import SettingsPage from "../features/settings/SettingsPage";
+import ClassesPage from "../features/classes/ClassesPage";
+import StudentsPage from "../features/students/StudentsPage";
 
 // Placeholder per peta halaman (PRD 11.1); diisi fitur nyata mulai Sprint S3–S4.
 const PAGES = [
@@ -31,7 +33,9 @@ export default function App() {
               <Layout>
                 <Routes>
                   <Route path="/settings/*" element={<SettingsPage />} />
-                  {PAGES.filter((p) => p.path !== "/settings/*").map((p) => (
+                  <Route path="/classes" element={<ClassesPage />} />
+                  <Route path="/students/*" element={<StudentsPage />} />
+                  {PAGES.filter((p) => p.path !== "/settings/*" && p.path !== "/students/*").map((p) => (
                     <Route key={p.path} path={p.path} element={<Placeholder title={p.title} />} />
                   ))}
                   <Route path="*" element={<Placeholder title="Halaman tidak ditemukan" />} />
