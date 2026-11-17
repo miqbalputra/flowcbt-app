@@ -1,4 +1,5 @@
 import { ThemeToggle } from "flowcbt-ui";
+import { useAuth } from "../features/auth/AuthContext";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard" },
@@ -40,7 +41,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
               Guru / Admin
             </span>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <LogoutButton />
+              <ThemeToggle />
+            </div>
           </header>
           <div className="p-4">{children}</div>
         </main>
@@ -66,5 +70,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
     </div>
+  );
+}
+
+function LogoutButton() {
+  const { logout } = useAuth();
+  return (
+    <button
+      type="button"
+      onClick={logout}
+      className="touch-target rounded-full border px-3 py-1.5 text-sm"
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-surface)",
+        color: "var(--color-text)",
+      }}
+    >
+      Keluar
+    </button>
   );
 }

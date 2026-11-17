@@ -1,7 +1,11 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { ThemeToggle } from "flowcbt-ui";
+import { AuthProvider, useAuth } from "../features/auth/AuthContext";
 import Layout from "./Layout";
+import LoginPage from "../features/auth/LoginPage";
+import RegisterPage from "../features/auth/RegisterPage";
 
-// Placeholder per peta halaman (PRD 11.1); diisi fitur nyata mulai Sprint S2–S4.
+// Placeholder per peta halaman (PRD 11.1); diisi fitur nyata mulai Sprint S3–S4.
 const PAGES = [
   { path: "/dashboard", title: "Dashboard" },
   { path: "/students/*", title: "Siswa & Kelas" },
@@ -15,14 +19,45 @@ const PAGES = [
 
 export default function App() {
   return (
-    <Layout>
+    <AuthProvider>
       <Routes>
-        {PAGES.map((p) => (
-          <Route key={p.path} path={p.path} element={<Placeholder title={p.title} />} />
-        ))}
-        <Route path="*" element={<Placeholder title="Halaman tidak ditemukan" />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route
+          path="*"
+          element={
+            <RequireAuth>
+              <Layout>
+                <Routes>
+                  {PAGES.map((p) => (
+                    <Route key={p.path} path={p.path} element={<Placeholder title={p.title} />} />
+                  ))}
+                  <Route path="*" element={<Placeholder title="Halaman tidak ditemukan" />} />
+                </Routes>
+              </Layout>
+            </RequireAuth>
+          }
+        />
       </Routes>
-    </Layout>
+    </AuthProvider>
+  );
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { authenticated, booting } = useAuth();
+  if (booting) return <FullScreenCenter>Membuka sesi…</FullScreenCenter>;
+  if (!authenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function FullScreenCenter({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center" style={{ background: "var(--color-bg)" }}>
+      <div className="flex flex-col items-center gap-3">
+        <span>{children}</span>
+        <ThemeToggle />
+      </div>
+    </div>
   );
 }
 
