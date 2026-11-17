@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flowcbt/backend/internal/auth"
 	"github.com/flowcbt/backend/internal/httpx"
 	"github.com/flowcbt/backend/internal/platform"
 	"github.com/go-chi/chi/v5"
@@ -30,9 +31,9 @@ func main() {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"active_exams": 0})
 	})
 
-	// Grup /api/v1 — modul ditambahkan setiap sprint.
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/ping", httpx.Healthz)
+		mountModules(api, cfg, logger)
 	})
 
 	srv := &http.Server{
@@ -59,4 +60,21 @@ func main() {
 	if err := srv.Shutdown(shCtx); err != nil {
 		logger.Error("shutdown gagal", slog.String("error", err.Error()))
 	}
+}
+
+// mountModules memasang modul API per sprint; modul yang butuh DB membuka pool sendiri.
+func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
+	ctx := context.Background()
+	db, err := platform.NewDB(ctx, cfg.DatabaseURL, cfg.DatabaseSysURL)
+	if err != nil {
+		// Tanpa DB, endpoint auth tidak tersedia; API tetap hidup (healthz) untuk dev UI.
+		logger.Warn("DB tidak tersedia, endpoint auth dilewati", slog.String("error", err.Error()))
+		return
+	}
+	store := &auth.Store{System: db.System}
+	svc := auth.NewService(store,
+		auth.NewJWTManager(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL),
+		platform.RealClock())
+	auth.NewHandler(svc).Mount(api)
+	logger.Info("modul auth terpasang")
 }

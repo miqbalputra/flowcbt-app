@@ -22,10 +22,10 @@ func TestHealthz(t *testing.T) {
 
 func TestErrorWriterStableCodes(t *testing.T) {
 	cases := []struct {
-		name    string
-		err     error
-		status  int
-		want    string // substring yang harus muncul
+		name   string
+		err    error
+		status int
+		want   string // substring yang harus muncul
 	}{
 		{"quota", httpx.AppErr(400, "QUOTA_EXCEEDED", "kuota habis", nil), 400, "QUOTA_EXCEEDED"},
 		{"not found", httpx.ErrNotFound(), 404, "NOT_FOUND"},

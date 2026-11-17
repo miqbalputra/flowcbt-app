@@ -11,9 +11,9 @@ import (
 
 // Config memuat seluruh konfigurasi runtime dari environment variable.
 type Config struct {
-	Addr            string        // alamat listen API, mis. ":8080"
-	DatabaseURL     string        // postgres://... (role app yang tunduk RLS)
-	DatabaseSysURL  string        // postgres://flowcbt_system:... (BYPASSRLS)
+	Addr            string // alamat listen API, mis. ":8080"
+	DatabaseURL     string // postgres://... (role app yang tunduk RLS)
+	DatabaseSysURL  string // postgres://flowcbt_system:... (BYPASSRLS)
 	RedisURL        string
 	JWTSecret       string
 	JWTAccessTTL    time.Duration // token akses singkat
