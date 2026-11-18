@@ -38,6 +38,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Put("/question-sets/{id}", h.updateSet)
 	r.Delete("/question-sets/{id}", h.archiveSet)
 	r.Get("/question-sets/{id}/questions", h.listQuestions)
+	r.Get("/question-sets/{id}/published-questions", h.listPublishedQuestions)
 	r.Post("/question-sets/{id}/questions", h.addQuestion)
 	r.Put("/questions/{id}", h.updateQuestion)
 	r.Delete("/questions/{id}", h.deleteQuestion)
@@ -161,6 +162,17 @@ func (h *Handler) listQuestions(w http.ResponseWriter, r *http.Request) {
 	c := auth.FromContext(r.Context())
 	id := chi.URLParam(r, "id")
 	qs, err := h.store.QuestionsOfSet(r.Context(), c.TenantID, id)
+	if err != nil {
+		httpx.ErrorWriter(w, r, notFoundOrErr(err))
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, qs)
+}
+
+// listPublishedQuestions: soal versi terbit — kuncijawaban tetap disensor.
+func (h *Handler) listPublishedQuestions(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	qs, err := h.store.PublishedQuestionsOfSet(r.Context(), c.TenantID, chi.URLParam(r, "id"))
 	if err != nil {
 		httpx.ErrorWriter(w, r, notFoundOrErr(err))
 		return

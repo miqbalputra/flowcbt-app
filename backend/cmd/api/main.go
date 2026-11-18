@@ -16,6 +16,7 @@ import (
 	"github.com/flowcbt/backend/internal/audit"
 	"github.com/flowcbt/backend/internal/auth"
 	"github.com/flowcbt/backend/internal/classroom"
+	"github.com/flowcbt/backend/internal/exam"
 	"github.com/flowcbt/backend/internal/httpx"
 	"github.com/flowcbt/backend/internal/notify"
 	"github.com/flowcbt/backend/internal/platform"
@@ -101,10 +102,11 @@ func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
 		classroomHandler.Mount(prot)
 		student.NewHandler(student.NewStore(db), auditw).Mount(prot)
 		questionbank.NewHandler(questionbank.NewStore(db), platform.NewStorage(), auditw).Mount(prot)
+		exam.NewHandler(exam.NewStore(db), auditw).Mount(prot)
 		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountTenant(prot)
 	})
 
-	logger.Info("modul terpasang", slog.String("modules", "auth,user,classroom,student,questionbank"))
+	logger.Info("modul terpasang", slog.String("modules", "auth,user,classroom,student,questionbank,exam"))
 }
 
 // redisAddr mengubah redis://host:port/db menjadi host:port.

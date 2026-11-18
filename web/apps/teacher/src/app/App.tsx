@@ -9,6 +9,8 @@ import EditorPage from "../features/question-sets/EditorPage";
 import SettingsPage from "../features/settings/SettingsPage";
 import ClassesPage from "../features/classes/ClassesPage";
 import StudentsPage from "../features/students/StudentsPage";
+import ExamsPage from "../features/exams/ExamsPage";
+import WizardPage from "../features/exams/WizardPage";
 
 // Placeholder per peta halaman (PRD 11.1); diisi fitur nyata mulai Sprint S3–S4.
 const PAGES = [
@@ -39,7 +41,9 @@ export default function App() {
                   <Route path="/students/*" element={<StudentsPage />} />
                   <Route path="/question-sets" element={<QuestionSetsPage />} />
                   <Route path="/question-sets/:id" element={<EditorPage />} />
-                  {PAGES.filter((p) => !p.path.startsWith("/settings") && p.path !== "/students/*" && !p.path.startsWith("/question-sets")).map((p) => (
+                  <Route path="/exams" element={<ExamsPage />} />
+                  <Route path="/exams/new" element={<WizardPage />} />
+                  {PAGES.filter((p) => !p.path.startsWith("/settings") && p.path !== "/students/*" && !p.path.startsWith("/question-sets") && !p.path.startsWith("/exams")).map((p) => (
                     <Route key={p.path} path={p.path} element={<Placeholder title={p.title} />} />
                   ))}
                   <Route path="*" element={<Placeholder title="Halaman tidak ditemukan" />} />

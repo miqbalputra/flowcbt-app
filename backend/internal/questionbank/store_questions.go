@@ -62,6 +62,24 @@ func (s *Store) QuestionsOfSet(ctx context.Context, tenantID, setID string) ([]Q
 	return s.QuestionsOfVersion(ctx, tenantID, versionID)
 }
 
+// PublishedQuestionsOfSet: soal versi terbit (dipakai wizard ujian S9) —
+// menjawab ErrNotFound bila paket belum pernah diterbitkan.
+func (s *Store) PublishedQuestionsOfSet(ctx context.Context, tenantID, setID string) ([]Question, error) {
+	var versionID string
+	err := s.db.WithTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT COALESCE(published_version_id::text, '') FROM question_sets WHERE id = $1::uuid`,
+			setID).Scan(&versionID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if versionID == "" {
+		return nil, ErrNotFound
+	}
+	return s.QuestionsOfVersion(ctx, tenantID, versionID)
+}
+
 // QuestionsOfVersion: soal satu versi (apa pun statusnya) urut order_no.
 func (s *Store) QuestionsOfVersion(ctx context.Context, tenantID, versionID string) ([]Question, error) {
 	out := []Question{}

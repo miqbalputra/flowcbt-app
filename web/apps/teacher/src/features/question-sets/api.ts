@@ -66,6 +66,10 @@ export const createSet = (body: Pick<QuestionSet, "subject_name" | "title" | "de
 export const getSetQuestions = (id: string) =>
   api<Question[]>(`/question-sets/${id}/questions`);
 
+/** Soal versi TERBIT (untuk pratinjau wizard ujian) — kunci tidak dikirim server. */
+export const getPublishedQuestions = (id: string) =>
+  api<Question[]>(`/question-sets/${id}/published-questions`);
+
 export const createQuestion = (setId: string, q: Partial<Question>) =>
   api<{ id: string }>(`/question-sets/${setId}/questions`, { method: "POST", body: q });
 
