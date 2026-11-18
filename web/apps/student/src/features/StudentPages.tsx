@@ -1,10 +1,11 @@
 // Halaman-halaman siswa (S11): login akun, token tamu, daftar ujian,
 // tata tertib & mulai. Mobile-first: satu kolom maks 480 px, target sentuh besar.
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
-  ApiError, clearTokens, errorOf, getAccessToken, guestAuth, myExams, setTokens,
-  startExam, studentLogin, type StartResult, type StudentExam,
+  ApiError, clearTokens, errorOf, getAccessToken, getResult, guestAuth, myExams, setTokens,
+  startExam, studentLogin, type ResultView, type StartResult, type StudentExam,
+  type StudentResult,
 } from "../lib/api";
 
 export function Shell({ title, children }: { title?: string; children: React.ReactNode }) {
@@ -236,4 +237,88 @@ export function StartPage() {
       </button>
     </Shell>
   );
+}
+
+// ---- layar selesai ujian (S13) ----
+// Menerima ResultView dari state navigasi (langsung setelah submit); bila halaman
+// dimuat ulang, ambil ulang hasil. Nilai bisa disembunyikan (403 SCORE_HIDDEN).
+
+export function DonePage() {
+  const { id = "" } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const initial = (location.state ?? null) as ResultView | null;
+  const [result, setResult] = useState<StudentResult | null>(initial ? { ...initial, show_review: false } : null);
+  const [error, setError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    if (initial) return;
+    let alive = true;
+    getResult(id)
+      .then((r) => { if (alive) setResult(r); })
+      .catch((e: unknown) => {
+        if (e instanceof ApiError && e.code === "SCORE_HIDDEN") { if (alive) setHidden(true); return; }
+        if (alive) setError(errorOf(e));
+      });
+    return () => { alive = false; };
+  }, [id, initial]);
+
+  const statusLabel =
+    result === null ? "" :
+    result.status === "graded" ? "Penilaian selesai" :
+    result.status === "awaiting_manual_grading" ? "Menunggu koreksi guru (bagian uraian)" :
+    "Jawaban diterima";
+
+  return (
+    <Shell title="Selesai">
+      <h1 className="mb-1 text-xl font-semibold">Ujian Selesai</h1>
+      <p className="mb-5 text-sm text-muted">
+        {result?.submit_reason === "timeout"
+          ? "Waktu habis — jawaban dikirim otomatis."
+          : result?.submit_reason === "force"
+            ? "Jawaban dikumpulkan oleh pengawas."
+            : "Jawaban Anda telah dikirim."}
+      </p>
+
+      {error && <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>{error}</p>}
+
+      <div className="mb-5 rounded-lg border p-4" style={{ borderColor: "var(--color-border)" }}>
+        {hidden ? (
+          <p className="text-sm text-muted">Nilai belum dirilis oleh guru. Hubungi pengawas untuk informasi hasil.</p>
+        ) : result === null && !error ? (
+          <p className="text-sm text-muted">Memuat hasil…</p>
+        ) : result && (
+          <>
+            <p className="text-sm text-muted">{statusLabel}</p>
+            <p className="mt-2 text-3xl font-bold">
+              {result.provisional ? (
+                <>Nilai sementara: {formatScore(result.final_score)}</>
+              ) : (
+                <>Nilai: {formatScore(result.final_score)}</>
+              )}
+            </p>
+            <p className="mt-1 text-sm text-muted">
+              {formatScore(result.earned)} / {formatScore(result.max_score)} poin
+              {result.provisional && " — bagian uraian dinilai guru, nilai akhir dapat berubah."}
+            </p>
+            {result.passed != null && (
+              <p className="mt-3 text-sm font-medium" aria-live="polite"
+                 style={{ color: result.passed ? "var(--color-success, #16a34a)" : "var(--color-danger)" }}>
+                {result.passed ? "Selamat, Anda dinyatakan lulus." : "Belum mencapai batas kelulusan."}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      <button type="button" className="btn-primary touch-target w-full" onClick={() => navigate("/exams")}>
+        Kembali ke daftar ujian
+      </button>
+    </Shell>
+  );
+}
+
+function formatScore(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }

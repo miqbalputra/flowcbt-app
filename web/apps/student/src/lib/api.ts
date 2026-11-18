@@ -150,3 +150,28 @@ export const myExams = () => api<StudentExam[]>("/me/exams");
 
 export const startExam = (examId: string, device_hash = "web") =>
   api<StartResult>(`/exams/${examId}/start`, { method: "POST", body: { device_hash } });
+
+// ---- submit & hasil (S13) ----
+
+export interface ResultView {
+  attempt_id: string;
+  exam_id: string;
+  status: "submitted" | "awaiting_manual_grading" | "graded";
+  earned: number;
+  max_score: number;
+  final_score: number;
+  passed?: boolean | null;
+  provisional: boolean;
+  submit_reason?: string;
+}
+
+export interface StudentResult extends ResultView {
+  show_review: boolean;
+  questions?: { question_id: string; is_correct?: boolean | null; score?: number | null; needs_grade: boolean }[];
+}
+
+export const submitAttempt = (attemptId: string, submit_reason: "manual" = "manual") =>
+  api<ResultView>(`/attempts/${attemptId}/submit`, { method: "POST", body: { submit_reason } });
+
+export const getResult = (attemptId: string) =>
+  api<StudentResult>(`/attempts/${attemptId}/result`);

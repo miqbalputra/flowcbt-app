@@ -65,6 +65,36 @@ func (h *Handler) MountStudent(r chi.Router) {
 	r.Post("/exams/{id}/start", h.start)
 	r.Get("/attempts/{id}", h.getAttempt)
 	r.Post("/attempts/{id}/answers:sync", h.syncAnswers)
+	r.Post("/attempts/{id}/submit", h.submit)
+	r.Get("/attempts/{id}/result", h.result)
+}
+
+// submit: siswa mengirim jawaban → grading → hasil.
+func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	var in submitReq
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	view, err := h.store.SubmitAttempt(r.Context(), c.TenantID, c.StudentID, chi.URLParam(r, "id"), in.Reason)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	h.audit.Log(r.Context(), audit.Entry{
+		TenantID: c.TenantID, ActorType: "student", ActorID: c.StudentID,
+		Action: "attempt.submit", Entity: "attempt", EntityID: view.AttemptID, IP: r.RemoteAddr,
+	})
+	httpx.WriteJSON(w, http.StatusOK, view)
+}
+
+// result: hasil attempt siswa (gating FR-5.4).
+func (h *Handler) result(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	res, err := h.store.GetResult(r.Context(), c.TenantID, c.StudentID, chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, res)
 }
 
 type guestReq struct {

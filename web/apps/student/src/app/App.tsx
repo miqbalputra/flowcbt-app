@@ -1,7 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { ThemeToggle } from "flowcbt-ui";
 import AttemptPage from "../features/Attempt";
-import { ExamsPage, GuestPage, LoginPage, StartPage } from "../features/StudentPages";
+import { DonePage, ExamsPage, GuestPage, LoginPage, StartPage } from "../features/StudentPages";
 
 // Klien ujian siswa: satu kolom, tombol besar, mobile-first (PRD 11).
 export default function App() {
@@ -13,6 +13,7 @@ export default function App() {
         <Route path="/exams" element={<ExamsPage />} />
         <Route path="/exams/:id/start" element={<StartPage />} />
         <Route path="/attempt/:id" element={<AttemptPage />} />
+        <Route path="/attempt/:id/done" element={<DonePage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  api, errorOf, type ClientQuestion, type StartResult,
+  api, errorOf, submitAttempt, type ClientQuestion, type StartResult, type ResultView,
 } from "../lib/api";
 import { Shell } from "./StudentPages";
 
@@ -38,6 +38,8 @@ export default function AttemptPage() {
   const [idx, setIdx] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [showReview, setShowReview] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Offset jam klien vs server (deadline otoritas server).
   const clockOffset = useRef(0);
@@ -121,6 +123,22 @@ export default function AttemptPage() {
     });
   };
 
+  const doSubmit = async () => {
+    if (!st) return;
+    setSubmitting(true);
+    try {
+      setShowReview(false);
+      await flush();
+      const view: ResultView = await submitAttempt(st.attempt_id);
+      sessionStorage.removeItem("flowcbt:attempt");
+      navigate(`/attempt/${st.attempt_id}/done`, { state: view });
+    } catch (e) {
+      setError(errorOf(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (!st) {
     return (
       <Shell title="Pengerjaan">
@@ -198,12 +216,54 @@ export default function AttemptPage() {
               Berikutnya
             </button>
           ) : (
-            <button type="button" className="btn-primary touch-target" onClick={() => void flush()}>
+            <button type="button" className="btn-primary touch-target" onClick={() => setShowReview(true)}
+                    disabled={submitting}>
               Selesai
             </button>
           )}
         </div>
       </footer>
+
+      {/* Daftar soal & konfirmasi (S13) */}
+      {showReview && (
+        <div className="fixed inset-0 z-20 flex items-end" role="dialog" aria-modal="true"
+             style={{ background: "rgba(0,0,0,0.45)" }} onClick={() => setShowReview(false)}>
+          <div className="max-h-[70dvh] w-full overflow-y-auto rounded-t-2xl bg-[var(--color-bg)] p-4"
+               onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1 w-12 rounded-full" style={{ background: "var(--color-border)" }} />
+            <h2 className="text-base font-semibold">Ringkasan jawaban</h2>
+            <p className="mb-3 text-sm text-muted">
+              Terjawab {answeredCount}/{qs.length} · ragu {qs.filter((x) => answers[x.id]?.flagged).length}
+            </p>
+            <div className="grid grid-cols-6 gap-2 py-2">
+              {qs.map((x, i) => {
+                const ans = answers[x.id];
+                const state = !ans?.answer ? "empty" : ans.flagged ? "flag" : "done";
+                return (
+                  <button key={x.id} type="button"
+                          className="touch-target size-11 rounded-lg border text-sm font-semibold"
+                          style={{
+                            borderColor: "var(--color-border)",
+                            background: state === "done" ? "var(--color-primary, #2563eb)"
+                              : state === "flag" ? "var(--color-warning, #b45309)" : "var(--color-bg-muted)",
+                            color: state === "empty" ? "var(--color-text)" : "#fff",
+                          }}
+                          onClick={() => { setIdx(i); setShowReview(false); }}>
+                    {i + 1}
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" className="btn-primary mt-3 w-full touch-target" disabled={submitting}
+                    onClick={() => void doSubmit()}>
+              {submitting ? "Mengirim…" : `Kirim jawaban (${answeredCount}/${qs.length})`}
+            </button>
+            <button type="button" className="btn-ghost mt-2 w-full touch-target" onClick={() => setShowReview(false)}>
+              Kembali mengerjakan
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
