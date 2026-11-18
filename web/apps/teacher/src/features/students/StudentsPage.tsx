@@ -1,5 +1,5 @@
 import { useCallback, useEffect, FormEvent, useState } from "react";
-import { ApiError, api } from "../../lib/api";
+import { ApiError, api, getAccessToken } from "../../lib/api";
 import { Field, inputCls } from "../auth/LoginPage";
 
 // FR-3.2/3.4/3.5: daftar siswa (tabel desktop, kartu mobile), tambah siswa
@@ -97,6 +97,7 @@ export default function StudentsPage() {
       )}
 
       {selected.size > 0 && <MoveClassBar classList={classes} selected={[...selected]} onDone={() => { setSelected(new Set()); void load(); }} />}
+      <ImportWizard onDone={load} />
 
       {/* Desktop: tabel */}
       <div className="mt-4 hidden md:block">
@@ -279,6 +280,180 @@ function MoveClassBar({ classList, selected, onDone }: { classList: ClassItem[];
       <button type="button" onClick={onDone} className="touch-target rounded-full border px-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
         Batal
       </button>
+    </div>
+  );
+}
+
+// ---- S5: Wizard import 3 langkah (template → preview → commit), AC-10 ----
+
+interface ImportErrors {
+  row: number;
+  name?: string;
+  reason: string;
+}
+interface ImportPreviewRes {
+  total: number;
+  valid: { row: number; name: string; gender: string; class: string; nis?: string }[];
+  errors: ImportErrors[];
+  limit: number;
+  remaining: number;
+}
+interface ImportCommitRes {
+  imported: number;
+  credentials: { username: string; password: string; student_code: string }[];
+  classes_created?: string[];
+}
+
+export function ImportWizard({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [autoCreate, setAutoCreate] = useState(true);
+  const [preview, setPreview] = useState<ImportPreviewRes | null>(null);
+  const [result, setResult] = useState<ImportCommitRes | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const downloadTemplate = async () => {
+    const res = await fetch("/api/v1/students/import/template", {
+      headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
+    });
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "template-import-siswa.xlsx";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const runPreview = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      setPreview(await api<ImportPreviewRes>("/students/import/preview", { method: "POST", body: fd }));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal memvalidasi file");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runCommit = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("auto_create_class", autoCreate ? "1" : "0");
+      const res = await api<ImportCommitRes>("/students/import/commit", { method: "POST", body: fd });
+      setResult(res);
+      setPreview(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal menyimpan import");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportStudents = async (format: "xlsx" | "csv") => {
+    const res = await fetch(`/api/v1/students/export?format=${format}`, {
+      headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
+    });
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `siswa.${format}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <button type="button" className="btn-primary" onClick={() => setOpen(true)}>
+        Import siswa
+      </button>
+      <button type="button" className="touch-target rounded-full border px-4 py-1.5 text-sm" style={{ borderColor: "var(--color-border)" }} onClick={() => void exportStudents("xlsx")}>
+        Export xlsx
+      </button>
+      <button type="button" className="touch-target rounded-full border px-4 py-1.5 text-sm" style={{ borderColor: "var(--color-border)" }} onClick={() => void exportStudents("csv")}>
+        Export csv
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-20 flex items-end justify-center sm:items-center" style={{ background: "rgba(0,0,0,.4)" }} onClick={() => !busy && setOpen(false)}>
+          <div className="w-full max-w-xl rounded-t-2xl border p-5 sm:rounded-2xl" style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }} onClick={(e) => e.stopPropagation()}>
+            {!result ? (
+              <>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="font-semibold">Import siswa</h2>
+                  <button type="button" onClick={() => void downloadTemplate()} className="touch-target rounded-full border px-3 py-1 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                    Unduh template
+                  </button>
+                </div>
+                <input type="file" accept=".xlsx,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mb-3" />
+                <label className="mb-3 flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={autoCreate} onChange={(e) => setAutoCreate(e.target.checked)} />
+                  Buat kelas otomatis bila belum ada
+                </label>
+
+                {error && <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>{error}</p>}
+
+                {preview && (
+                  <div className="mb-3 max-h-72 overflow-auto rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                    <p>
+                      <b>{preview.valid.length}</b> baris valid dari {preview.total} · sisa kuota {preview.remaining}/{preview.limit}
+                      {preview.errors.length > 0 && (
+                        <> · <span style={{ color: "var(--color-danger)" }}><b>{preview.errors.length}</b> error</span></>
+                      )}
+                    </p>
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {preview.errors.map((e2, i) => (
+                        <li key={i} style={{ color: "var(--color-danger)" }}>
+                          Baris {e2.row} {e2.name && `(${e2.name})`}: {e2.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button type="button" onClick={runPreview} disabled={busy || !file} className="btn-primary">
+                    {busy ? "Memeriksa…" : "1. Periksa file"}
+                  </button>
+                  {preview && preview.valid.length > 0 && (
+                    <button type="button" onClick={runCommit} disabled={busy} className="btn-primary">
+                      2. Simpan {preview.valid.length} siswa
+                    </button>
+                  )}
+                  <button type="button" onClick={() => { setOpen(false); setPreview(null); setResult(null); }} className="touch-target rounded-full border px-4 py-1.5 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                    Tutup
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <p style={{ color: "var(--color-success)" }}>
+                  Import selesai: {result.imported} siswa dibuat.
+                  {result.classes_created && result.classes_created.length > 0 &&
+                    ` Kelas baru: ${result.classes_created.join(", ")}.`}
+                </p>
+                <details>
+                  <summary className="cursor-pointer text-sm font-medium">Kartu login (cetak / simpan)</summary>
+                  <pre className="mt-2 max-h-64 overflow-auto rounded p-2 text-xs" style={{ background: "var(--color-bg-muted)" }}>
+                    {result.credentials.map((c) => `${c.student_code}\t${c.username}\t${c.password}`).join("\n")}
+                  </pre>
+                </details>
+                <button type="button" onClick={() => { setOpen(false); setResult(null); onDone(); }} className="btn-primary self-start">
+                  Selesai
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

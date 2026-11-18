@@ -446,6 +446,12 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Put("/students/{id}", h.update)
 	r.Delete("/students/{id}", h.archive)
 	r.Post("/students/move-class", h.moveClass)
+	// S5: import/export siswa. Kartu login dicetak dari kredensial hasil
+	// import/creation di sisi klien (server hanya menyimpan hash password).
+	r.Get("/students/import/template", h.importTemplate)
+	r.Post("/students/import/preview", h.importPreview)
+	r.Post("/students/import/commit", h.importCommit)
+	r.Get("/students/export", h.export)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
