@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  ApiError, createQuestion, deleteQuestion, errorOf, getSet, getSetQuestions,
-  publishSet, reorderQuestions, updateQuestion,
-  type Option, type Question,
+  ApiError, commitQuestionImport, createQuestion, deleteQuestion, downloadQuestionTemplate,
+  errorOf, exportQuestions, getSet, getSetQuestions, previewQuestionImport, publishSet,
+  reorderQuestions, updateQuestion,
+  type Option, type Question, type QuestionImportPreview,
 } from "./api";
 import { MatchingView, OptionsView, QuestionBodyView, ScoringBadge } from "./views";
 
@@ -17,6 +18,9 @@ const ALL_TYPES = [
   { value: "essay", label: "Uraian" },
 ] as const;
 
+// stripHTML untuk pratinjau ringkas (render penuh tetap lewat React).
+const stripHTML = (s: string) => s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
 export default function EditorPage() {
   const { id = "" } = useParams();
   const [set, setSet] = useState<Awaited<ReturnType<typeof getSet>> | null>(null);
@@ -25,6 +29,8 @@ export default function EditorPage() {
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [newType, setNewType] = useState<Question["type"]>("mcq");
+  const [importPreview, setImportPreview] = useState<QuestionImportPreview | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +75,58 @@ export default function EditorPage() {
 
       {error && <p role="alert" className="mt-3" style={{ color: "var(--color-danger)" }}>{error}</p>}
 
+      {/* Toolbar import/export template (S8). Import hanya paket draft. */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className="btn-ghost touch-target" onClick={() => void downloadQuestionTemplate()}>
+          Template
+        </button>
+        <label className="btn-ghost touch-target" style={{ cursor: locked ? "not-allowed" : "pointer", opacity: locked ? 0.5 : 1 }}>
+          Impor
+          <input type="file" accept=".xlsx,.csv" className="hidden" disabled={locked}
+                 onChange={(e) => void onImportPick(e.target.files?.[0] ?? null)} />
+        </label>
+        <button type="button" className="btn-ghost touch-target" onClick={() => void exportQuestions(id)}>
+          Ekspor XLSX
+        </button>
+      </div>
+
+      {importPreview && (
+        <div className="mt-3 rounded-lg border p-4" style={{ borderColor: "var(--color-border)" }}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">
+              Pratinjau impor: {importPreview.valid.length} sah / {importPreview.total} baris
+            </span>
+            <div className="flex gap-2">
+              <button type="button" className="btn-primary touch-target"
+                      disabled={saving || importPreview.valid.length === 0}
+                      onClick={() => void onImportCommit()}>
+                {saving ? "Menyimpan…" : `Simpan ${importPreview.valid.length} soal`}
+              </button>
+              <button type="button" className="btn-ghost touch-target" onClick={() => setImportPreview(null)}>
+                Batal
+              </button>
+            </div>
+          </div>
+          {importPreview.errors.length > 0 && (
+            <ul className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+              {importPreview.errors.map((e) => (
+                <li key={e.row}>Baris {e.row}: {e.reason}</li>
+              ))}
+            </ul>
+          )}
+          <ul className="mt-2 text-sm">
+            {importPreview.valid.slice(0, 10).map((q, i) => (
+              <li key={i}>
+                {q.type} · {q.points} poin · {stripHTML(q.body).slice(0, 80)}
+              </li>
+            ))}
+            {importPreview.valid.length > 10 && (
+              <li className="text-muted">…dan {importPreview.valid.length - 10} soal lainnya</li>
+            )}
+          </ul>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-col gap-4">
         <QuestionList
           questions={questions}
@@ -99,6 +157,37 @@ export default function EditorPage() {
       </p>
     </div>
   );
+
+  async function onImportPick(file: File | null) {
+    setImportFile(file);
+    setImportPreview(null);
+    if (!file) return;
+    try {
+      setSaving(true);
+      setImportPreview(await previewQuestionImport(id, file));
+      setError(null);
+    } catch (e) {
+      setError(errorOf(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onImportCommit() {
+    if (!importFile) return;
+    try {
+      setSaving(true);
+      const res = await commitQuestionImport(id, importFile);
+      setError(res.errors.length > 0 ? `${res.inserted} soal disimpan, ${res.errors.length} baris gagal.` : null);
+      setImportPreview(null);
+      setImportFile(null);
+      await load();
+    } catch (e) {
+      setError(errorOf(e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function onPublish() {
     try {

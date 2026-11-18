@@ -1,7 +1,7 @@
 // Halaman daftar paket soal: cari, buat, duplikat, arsip, buka editor.
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, archiveSet, createSet, duplicateSet, listSets, publishSet } from "./api";
+import { ApiError, archiveSet, createSet, duplicateSet, listSets, publishSet, unpublishSet } from "./api";
 import type { QuestionSet } from "./api";
 import { errorOf } from "./api";
 
@@ -63,6 +63,19 @@ export default function QuestionSetsPage() {
     setBusy(true);
     try {
       await publishSet(id);
+      await load(q);
+    } catch (err) {
+      setError(errorOf(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onUnpublish = async (id: string) => {
+    if (!window.confirm("Tarik publikasi? Paket kembali ke draft. Gagal bila ujian masih memakai versi terbit.")) return;
+    setBusy(true);
+    try {
+      await unpublishSet(id);
       await load(q);
     } catch (err) {
       setError(errorOf(err));
@@ -154,6 +167,11 @@ export default function QuestionSetsPage() {
                   {s.status === "draft" && (
                     <button type="button" className="btn-ghost touch-target" onClick={() => void onPublish(s.id)} disabled={busy}>
                       Publish
+                    </button>
+                  )}
+                  {s.status === "published" && (
+                    <button type="button" className="btn-ghost touch-target" onClick={() => void onUnpublish(s.id)} disabled={busy}>
+                      Tarik publikasi
                     </button>
                   )}
                   <button type="button" className="btn-ghost touch-target" onClick={() => void onDuplicate(s.id)} disabled={busy}>

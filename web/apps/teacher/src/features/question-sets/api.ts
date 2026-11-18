@@ -1,7 +1,7 @@
-// Klien API bank soal (bank soal backend S6). Semua lewat lib/api.
-import { api, ApiError } from "../../lib/api";
+// Klien API bank soal (backend S6+S8). Semua lewat lib/api.
+import { api, apiBlob, ApiError, downloadBlob } from "../../lib/api";
 
-export { ApiError };
+export { ApiError, downloadBlob };
 
 /** Pesan error siap-tampil untuk throw unknown. */
 export const errorOf = (e: unknown): string =>
@@ -81,6 +81,9 @@ export const reorderQuestions = (setId: string, order: string[]) =>
 export const publishSet = (id: string) =>
   api<QuestionSet>(`/question-sets/${id}/publish`, { method: "POST" });
 
+export const unpublishSet = (id: string) =>
+  api<{ message: string }>(`/question-sets/${id}/unpublish`, { method: "POST" });
+
 export const duplicateSet = (id: string) =>
   api<{ id: string }>(`/question-sets/${id}/duplicate`, { method: "POST" });
 
@@ -102,3 +105,36 @@ export const uploadMedia = async (file: File, kind: "image" | "audio" = "image")
   fd.append("kind", kind);
   return api<MediaAsset>("/media", { method: "POST", body: fd });
 };
+
+// ---- import/export template soal (S8) ----
+
+export interface QuestionImportError {
+  row: number;
+  reason: string;
+}
+
+export interface QuestionImportPreview {
+  total: number;
+  valid: Question[];
+  errors: QuestionImportError[];
+}
+
+export const downloadQuestionTemplate = () =>
+  apiBlob("/question-sets/import/template").then((b) => downloadBlob(b, "template-soal-flowcbt.xlsx"));
+
+export const previewQuestionImport = (setId: string, file: File): Promise<QuestionImportPreview> => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api<QuestionImportPreview>(`/question-sets/${setId}/import/preview`, { method: "POST", body: fd });
+};
+
+export const commitQuestionImport = (setId: string, file: File) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api<{ inserted: number; errors: QuestionImportError[] }>(
+    `/question-sets/${setId}/import/commit`, { method: "POST", body: fd });
+};
+
+export const exportQuestions = (setId: string, format: "xlsx" | "csv" = "xlsx") =>
+  apiBlob(`/question-sets/${setId}/export?format=${format}`).then((b) =>
+    downloadBlob(b, `soal-export.${format}`));

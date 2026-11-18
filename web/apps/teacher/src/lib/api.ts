@@ -94,3 +94,31 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   }
   return (await res.json()) as T;
 }
+
+/** Unduh berkas (template/export) dengan auth; melempar ApiError bila gagal. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const token = getAccessToken();
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${BASE}${path}`, { headers });
+  if (!res.ok) {
+    let message = `Permintaan gagal (${res.status})`;
+    try {
+      const err = (await res.json()) as { message?: string };
+      message = err.message ?? message;
+    } catch {
+      // body bukan JSON: pakai default
+    }
+    throw new ApiError(res.status, "REQUEST_FAILED", message);
+  }
+  return res.blob();
+}
+
+/** Picu unduhan berkas blob di browser. */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}

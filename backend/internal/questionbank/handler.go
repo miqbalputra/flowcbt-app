@@ -2,6 +2,7 @@
 package questionbank
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -42,7 +43,14 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Delete("/questions/{id}", h.deleteQuestion)
 	r.Post("/questions/reorder", h.reorder)
 	r.Post("/question-sets/{id}/publish", h.publish)
+	r.Post("/question-sets/{id}/unpublish", h.unpublish)
 	r.Post("/question-sets/{id}/duplicate", h.duplicate)
+
+	// Import/export template soal (S8, FR-4.9). Kuota = stub (S27).
+	r.Get("/question-sets/import/template", h.questionTemplate)
+	r.Post("/question-sets/{id}/import/preview", h.questionImportPreview)
+	r.Post("/question-sets/{id}/import/commit", h.questionImportCommit)
+	r.Get("/question-sets/{id}/export", h.questionExport)
 
 	// Media (gambar/audio soal). FR-4.4; kuota per tenant (PRD 3.2).
 	r.Post("/media", h.uploadMedia)
@@ -220,13 +228,26 @@ func (h *Handler) updateQuestion(w http.ResponseWriter, r *http.Request) {
 			req.ExplanationHTML = e
 		}
 	}
-	err := h.store.UpdateQuestion(r.Context(), c.TenantID, chi.URLParam(r, "id"),
+	// Audit perubahan kunci (S8): bandingkan kunci lama sebelum menulis.
+	oldKey, hadKey, err := h.store.AnswerKeyOf(r.Context(), c.TenantID, chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	err = h.store.UpdateQuestion(r.Context(), c.TenantID, chi.URLParam(r, "id"),
 		strPtr(req.StimulusID), req.Body, req.Options, req.AnswerKey, req.Rubric,
 		req.Points, req.ScoringMode, req.PartialWrongPenalty, req.ShuffleOptions,
 		req.ExplanationHTML)
 	if err != nil {
 		httpx.ErrorWriter(w, r, err)
 		return
+	}
+	if keyChanged(oldKey, hadKey, req.AnswerKey) {
+		h.audit.Log(r.Context(), audit.Entry{
+			TenantID: c.TenantID, ActorType: "user", ActorID: c.UserID,
+			Action: "question.answer_key_change", Entity: "question",
+			EntityID: chi.URLParam(r, "id"), IP: r.RemoteAddr,
+		})
 	}
 	h.audit.Log(r.Context(), audit.Entry{
 		TenantID: c.TenantID, ActorType: "user", ActorID: c.UserID,
@@ -391,6 +412,24 @@ func notFoundOrErr(err error) error {
 		return httpx.ErrNotFound()
 	}
 	return err
+}
+
+// keyChanged menyandingkan kunci lama & baru secara kanonik (JSON ringkas).
+func keyChanged(old json.RawMessage, hadKey bool, newKey any) bool {
+	oldStr := "null"
+	if hadKey {
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, old); err == nil {
+			oldStr = buf.String()
+		}
+	}
+	newStr := "null"
+	if newKey != nil {
+		if b, err := json.Marshal(newKey); err == nil {
+			newStr = string(b)
+		}
+	}
+	return oldStr != newStr
 }
 
 func strPtr(s string) *string {
