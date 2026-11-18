@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from "../features/auth/AuthContext";
 import Layout from "./Layout";
 import LoginPage from "../features/auth/LoginPage";
 import RegisterPage from "../features/auth/RegisterPage";
+import QuestionSetsPage from "../features/question-sets/QuestionSetsPage";
+import EditorPage from "../features/question-sets/EditorPage";
 import SettingsPage from "../features/settings/SettingsPage";
 import ClassesPage from "../features/classes/ClassesPage";
 import StudentsPage from "../features/students/StudentsPage";
@@ -35,7 +37,9 @@ export default function App() {
                   <Route path="/settings/*" element={<SettingsPage />} />
                   <Route path="/classes" element={<ClassesPage />} />
                   <Route path="/students/*" element={<StudentsPage />} />
-                  {PAGES.filter((p) => p.path !== "/settings/*" && p.path !== "/students/*").map((p) => (
+                  <Route path="/question-sets" element={<QuestionSetsPage />} />
+                  <Route path="/question-sets/:id" element={<EditorPage />} />
+                  {PAGES.filter((p) => !p.path.startsWith("/settings") && p.path !== "/students/*" && !p.path.startsWith("/question-sets")).map((p) => (
                     <Route key={p.path} path={p.path} element={<Placeholder title={p.title} />} />
                   ))}
                   <Route path="*" element={<Placeholder title="Halaman tidak ditemukan" />} />

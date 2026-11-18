@@ -4,6 +4,7 @@ package questionbank
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -181,27 +182,47 @@ func (s *Store) ArchiveSet(ctx context.Context, tenantID, id string) error {
 
 // ---- Versi & publish (FR-4.7/4.8) ----
 
-// ensureDraftVersionTx: pastikan ada persis satu versi draft per paket,
-// bekerja pada transaksi yang SUDAH berjalan (dipakai PublishSet).
-func ensureDraftVersionTx(ctx context.Context, tx pgx.Tx, setID string) error {
-	var exists bool
+// ensureDraftVersionTx: pastikan ada persis satu versi draft per paket dan
+// question_sets.draft_version_id selalu menunjuk ke sana, bekerja pada
+// transaksi yang SUDAH berjalan (dipakai PublishSet). Mengembalikan ID draft.
+func ensureDraftVersionTx(ctx context.Context, tx pgx.Tx, setID string) (string, error) {
+	var draftID string
 	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM question_set_versions
-			WHERE question_set_id = $1::uuid AND status = 'draft')`, setID).Scan(&exists); err != nil {
-		return err
+		SELECT COALESCE(draft_version_id::text, '') FROM question_sets WHERE id = $1::uuid`, setID).Scan(&draftID); err != nil {
+		return "", err
 	}
-	if exists {
-		return nil
+	if draftID == "" {
+		// Versi draft sudah ada tapi belum tersambung — sambungkan dulu.
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(id::text, '') FROM question_set_versions
+			WHERE question_set_id = $1::uuid AND status = 'draft' LIMIT 1`, setID).Scan(&draftID); err != nil {
+			return "", err
+		}
+	}
+	if draftID != "" {
+		if _, err := tx.Exec(ctx, `
+			UPDATE question_sets SET draft_version_id = $2::uuid
+			WHERE id = $1::uuid AND (draft_version_id IS NULL OR draft_version_id <> $2::uuid)`,
+			setID, draftID); err != nil {
+			return "", err
+		}
+		return draftID, nil
 	}
 	var versionNo int
-	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(version_no), 0) + 1 FROM question_set_versions WHERE question_set_id = $1::uuid`, setID).Scan(&versionNo); err != nil {
-		return err
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(version_no), 0) + 1 FROM question_set_versions WHERE question_set_id = $1::uuid`, setID).Scan(&versionNo); err != nil {
+		return "", err
 	}
-	_, err := tx.Exec(ctx, `
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO question_set_versions (question_set_id, version_no, status)
-		VALUES ($1::uuid, $2, 'draft')`, setID, versionNo)
-	return err
+		VALUES ($1::uuid, $2, 'draft') RETURNING id::text`, setID, versionNo).Scan(&draftID); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE question_sets SET draft_version_id = $2::uuid WHERE id = $1::uuid`, setID, draftID); err != nil {
+		return "", err
+	}
+	return draftID, nil
 }
 
 // PublishSet (FR-4.7): validasi kelengkapan → buat versi published (beku) →
@@ -210,14 +231,9 @@ func (s *Store) PublishSet(ctx context.Context, tenantID, setID, userID string) 
 	var published *QuestionSetVersion
 	err := s.db.WithTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
 		// 1. Pastikan ada versi draft sumber dengan soal di dalamnya.
-		if err := ensureDraftVersionTx(ctx, tx, setID); err != nil {
+		draftID, err := ensureDraftVersionTx(ctx, tx, setID)
+		if err != nil {
 			return err
-		}
-		var draftID string
-		if err := tx.QueryRow(ctx, `
-			SELECT id::text FROM question_set_versions
-			WHERE question_set_id = $1::uuid AND status = 'draft' LIMIT 1`, setID).Scan(&draftID); err != nil {
-			return errors.New("paket belum memiliki soal untuk dipublikasikan")
 		}
 
 		// 2. Validasi tiap soal punya kunci & poin (FR-4.7).
@@ -258,14 +274,16 @@ func (s *Store) PublishSet(ctx context.Context, tenantID, setID, userID string) 
 			return err
 		}
 
-		// 5. Kunci set: published_version_id diisi, draft baru dibuat.
+		// 5. Kunci set: published_version_id diisi; draft asli tetap jadi
+		// salinan kerja — perubahan setelah publish tidak menyentuh versi
+		// terbit (keputusan #4, lampiran 18.6).
 		if _, err := tx.Exec(ctx, `
 			UPDATE question_sets
 			SET published_version_id = $3, status = 'published', updated_at = now()
 			WHERE id = $1::uuid AND tenant_id = $2::uuid`, setID, tenantID, newVersionID); err != nil {
 			return err
 		}
-		if err := ensureDraftVersionTx(ctx, tx, setID); err != nil {
+		if _, err := ensureDraftVersionTx(ctx, tx, setID); err != nil {
 			return err
 		}
 
@@ -280,7 +298,7 @@ func (s *Store) PublishSet(ctx context.Context, tenantID, setID, userID string) 
 
 func (s *Store) validateQuestions(ctx context.Context, tx pgx.Tx, versionID string) []string {
 	rows, err := tx.Query(ctx, `
-		SELECT type, body_html IS NULL OR btrim(body_html) = '', points IS NULL
+		SELECT type, body_html IS NULL OR btrim(body_html) = '', points IS NULL, options_json
 		FROM questions WHERE set_version_id = $1::uuid`, versionID)
 	if err != nil {
 		return []string{"gagal membaca soal: " + err.Error()}
@@ -292,12 +310,13 @@ func (s *Store) validateQuestions(ctx context.Context, tx pgx.Tx, versionID stri
 		i++
 		var typ string
 		var bodyEmpty, pointsNull bool
-		if err := rows.Scan(&typ, &bodyEmpty, &pointsNull); err != nil {
+		var optionsJSON []byte
+		if err := rows.Scan(&typ, &bodyEmpty, &pointsNull, &optionsJSON); err != nil {
 			problems = append(problems, "soal ke-"+strconv.Itoa(i)+": tidak terbaca")
 			continue
 		}
 		switch {
-		case typ == TypeMCQ || typ == TypeMCQComplex:
+		case (typ == TypeMCQ || typ == TypeMCQComplex) && !hasCorrectOption(optionsJSON):
 			problems = append(problems, "soal ke-"+strconv.Itoa(i)+": kunci jawaban pilihan belum diatur")
 		case bodyEmpty:
 			problems = append(problems, "soal ke-"+strconv.Itoa(i)+": pertanyaan kosong")
@@ -309,6 +328,22 @@ func (s *Store) validateQuestions(ctx context.Context, tx pgx.Tx, versionID stri
 		problems = append(problems, "paket belum memiliki soal")
 	}
 	return problems
+}
+
+// hasCorrectOption: kunci MCQ sah bila minimal satu opsi bertanda benar.
+func hasCorrectOption(optionsJSON []byte) bool {
+	var opts []struct {
+		Correct bool `json:"correct"`
+	}
+	if json.Unmarshal(optionsJSON, &opts) != nil {
+		return false
+	}
+	for _, o := range opts {
+		if o.Correct {
+			return true
+		}
+	}
+	return false
 }
 
 // cloneQuestionsForVersion: salin seluruh soal dari satu versi ke versi lain.
@@ -351,11 +386,10 @@ func (s *Store) recountVersion(ctx context.Context, tx pgx.Tx, v *QuestionSetVer
 	).Scan(&v.QuestionCount, &v.MaxPoints)
 }
 
-// cloneStimuliForVersion: salin stimulus antar versi.
-
 // createInitialDraft: draft pertama saat paket dibuat (tx baru).
 func (s *Store) createInitialDraft(ctx context.Context, tenantID, setID string) error {
 	return s.db.WithTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
-		return ensureDraftVersionTx(ctx, tx, setID)
+		_, err := ensureDraftVersionTx(ctx, tx, setID)
+		return err
 	})
 }

@@ -58,14 +58,17 @@ async function tryRefresh(): Promise<boolean> {
 }
 
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const isForm = opts.body instanceof FormData;
+  const headers: Record<string, string> = isForm
+    ? {} // FormData: browser set Content-Type multipart + boundary sendiri
+    : { "Content-Type": "application/json" };
   const token = getAccessToken();
   if (!opts.skipAuth && token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${BASE}${path}`, {
     method: opts.method ?? "GET",
     headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
   });
 
   // Access token kadaluarsa → refresh lalu ulang sekali.
