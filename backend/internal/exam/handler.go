@@ -40,7 +40,17 @@ func (h *Handler) Mount(r chi.Router) {
 
 	// Penugasan & peserta (FR-5.6).
 	r.Put("/exams/{id}/assignments", h.setAssignments)
+	r.Get("/exams/{id}/assignments", h.listAssignments)
 	r.Get("/exams/{id}/participants", h.listParticipants)
+
+	// Siklus status & aksi pengawas (S10, FR-5.7).
+	r.Post("/exams/{id}/publish", h.publish)
+	r.Post("/exams/{id}/status", h.setStatus)
+	r.Post("/exams/{id}/tokens/regenerate", h.regenerateTokens)
+	r.Post("/exams/{id}/participants/{studentID}/add-time", h.addTime)
+	r.Post("/exams/{id}/participants/{studentID}/reset-attempts", h.resetAttempts)
+	r.Post("/exams/{id}/participants/{studentID}/force-submit", h.forceSubmit)
+	r.Post("/exams/{id}/participants/{studentID}/kick", h.kickSession)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +224,139 @@ func (h *Handler) setAssignments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "penugasan & peserta diperbarui"})
+}
+
+func (h *Handler) listAssignments(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	list, err := h.store.ListAssignments(r.Context(), c.TenantID, chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, list)
+}
+
+// ---- siklus status & aksi pengawas (S10) ----
+
+func (h *Handler) publish(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	id := chi.URLParam(r, "id")
+	e, err := h.store.Publish(r.Context(), c.TenantID, id, c.UserID)
+	if err != nil {
+		httpx.ErrorWriter(w, r, httpx.ErrBadRequest(err.Error(), nil))
+		return
+	}
+	h.audit.Log(r.Context(), audit.Entry{
+		TenantID: c.TenantID, ActorType: "user", ActorID: c.UserID,
+		Action: "exam.publish", Entity: "exam", EntityID: id, IP: r.RemoteAddr,
+	})
+	httpx.WriteJSON(w, http.StatusOK, e)
+}
+
+type statusReq struct {
+	Action string `json:"action"` // pause | resume | close | cancel
+}
+
+func (h *Handler) setStatus(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	var in statusReq
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorWriter(w, r, httpx.ErrBadRequest("payload tidak valid", nil))
+		return
+	}
+	id := chi.URLParam(r, "id")
+	e, err := h.store.SetStatus(r.Context(), c.TenantID, id, in.Action)
+	if err != nil {
+		httpx.ErrorWriter(w, r, badReqOrNotFound(err))
+		return
+	}
+	h.audit.Log(r.Context(), audit.Entry{
+		TenantID: c.TenantID, ActorType: "user", ActorID: c.UserID,
+		Action: "exam." + in.Action, Entity: "exam", EntityID: id, IP: r.RemoteAddr,
+	})
+	httpx.WriteJSON(w, http.StatusOK, e)
+}
+
+func (h *Handler) regenerateTokens(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	var in tokenReq
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	var roomID *string
+	if in.RoomID != "" {
+		roomID = &in.RoomID
+	}
+	id := chi.URLParam(r, "id")
+	t, err := h.store.RegenerateTokens(r.Context(), c.TenantID, id, roomID)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	h.audit.Log(r.Context(), audit.Entry{
+		TenantID: c.TenantID, ActorType: "user", ActorID: c.UserID,
+		Action: "exam.token_regenerate", Entity: "exam", EntityID: id, IP: r.RemoteAddr,
+	})
+	httpx.WriteJSON(w, http.StatusCreated, t)
+}
+
+// partAction: kerangka aksi pengawas per siswa + audit.
+func (h *Handler) partAction(
+	w http.ResponseWriter, r *http.Request,
+	action string,
+	fn func(tenantID, examID, studentID string) error,
+) {
+	c := auth.FromContext(r.Context())
+	examID := chi.URLParam(r, "id")
+	studentID := chi.URLParam(r, "studentID")
+	if err := fn(c.TenantID, examID, studentID); err != nil {
+		httpx.ErrorWriter(w, r, badReqOrNotFound(err))
+		return
+	}
+	h.audit.Log(r.Context(), audit.Entry{
+		TenantID: c.TenantID, ActorType: "user", ActorID: c.UserID,
+		Action: "exam." + action, Entity: "exam_participant",
+		EntityID: examID + "/" + studentID, IP: r.RemoteAddr,
+	})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"message": "aksi " + action + " diterapkan"})
+}
+
+func (h *Handler) addTime(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Seconds int `json:"seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorWriter(w, r, httpx.ErrBadRequest("payload tidak valid", nil))
+		return
+	}
+	h.partAction(w, r, "add_time", func(tenantID, examID, studentID string) error {
+		return h.store.AddTime(r.Context(), tenantID, examID, studentID, in.Seconds)
+	})
+}
+
+func (h *Handler) resetAttempts(w http.ResponseWriter, r *http.Request) {
+	h.partAction(w, r, "reset_attempts", func(tenantID, examID, studentID string) error {
+		_, err := h.store.ResetAttempts(r.Context(), tenantID, examID, studentID)
+		return err
+	})
+}
+
+func (h *Handler) forceSubmit(w http.ResponseWriter, r *http.Request) {
+	h.partAction(w, r, "force_submit", func(tenantID, examID, studentID string) error {
+		return h.store.ForceSubmit(r.Context(), tenantID, examID, studentID)
+	})
+}
+
+func (h *Handler) kickSession(w http.ResponseWriter, r *http.Request) {
+	h.partAction(w, r, "kick", func(tenantID, examID, studentID string) error {
+		return h.store.KickSession(r.Context(), tenantID, examID, studentID)
+	})
+}
+
+// badReqOrNotFound: ErrNotFound → 404; lainnya dilempar apa adanya (pesan ID).
+func badReqOrNotFound(err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return httpx.ErrNotFound()
+	}
+	return err
 }
 
 func (h *Handler) listParticipants(w http.ResponseWriter, r *http.Request) {

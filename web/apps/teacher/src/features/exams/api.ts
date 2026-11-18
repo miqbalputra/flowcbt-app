@@ -72,7 +72,16 @@ export interface Participant {
   class_name?: string | null;
   source: "assignment" | "manual" | "guest";
   extra_time_seconds: number;
+  attempt_status?: string;
+  attempts: number;
+  violations: number;
 }
+
+export type Assignment = {
+  target_type: "class" | "student";
+  class_id?: string;
+  student_id?: string;
+};
 
 export const listExams = (q = "") =>
   api<Exam[]>(`/exams${q ? `?q=${encodeURIComponent(q)}` : ""}`);
@@ -108,6 +117,32 @@ export const setAssignments = (
 
 export const listParticipants = (examId: string) =>
   api<Participant[]>(`/exams/${examId}/participants`);
+
+// ---- Siklus status & aksi pengawas (S10, FR-5.7) ----
+
+export const publishExam = (id: string) =>
+  api<Exam>(`/exams/${id}/publish`, { method: "POST" });
+
+export const setExamStatus = (id: string, action: "pause" | "resume" | "close" | "cancel") =>
+  api<Exam>(`/exams/${id}/status`, { method: "POST", body: { action } });
+
+export const listAssignments = (examId: string) =>
+  api<Assignment[]>(`/exams/${examId}/assignments`);
+
+export const regenerateTokens = (examId: string, roomId?: string) =>
+  api<Token>(`/exams/${examId}/tokens/regenerate`, { method: "POST", body: { room_id: roomId ?? "" } });
+
+export const addTime = (examId: string, studentId: string, seconds: number) =>
+  api(`/exams/${examId}/participants/${studentId}/add-time`, { method: "POST", body: { seconds } });
+
+export const resetAttempts = (examId: string, studentId: string) =>
+  api(`/exams/${examId}/participants/${studentId}/reset-attempts`, { method: "POST" });
+
+export const forceSubmit = (examId: string, studentId: string) =>
+  api(`/exams/${examId}/participants/${studentId}/force-submit`, { method: "POST" });
+
+export const kickSession = (examId: string, studentId: string) =>
+  api(`/exams/${examId}/participants/${studentId}/kick`, { method: "POST" });
 
 /** datetime-local ("2026-01-10T07:00") → RFC3339 WIB default (PRD FR-5.1). */
 export const toWIB = (dtLocal: string): string => {

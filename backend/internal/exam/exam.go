@@ -447,31 +447,39 @@ func genToken() string {
 
 // IssueToken: token GLOBAL unik (tenant ditemukan dari token saat login guest).
 func (s *Store) IssueToken(ctx context.Context, tenantID, examID string, roomID *string) (*Token, error) {
-	var t Token
+	var t *Token
 	err := s.db.WithTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
-		for attempt := 0; attempt < 5; attempt++ {
-			tok := genToken()
-			err := tx.QueryRow(ctx, `
-				INSERT INTO exam_tokens (token, tenant_id, exam_id, room_id)
-				VALUES ($1, $2::uuid, $3::uuid, $4::uuid)
-				ON CONFLICT (token) DO NOTHING
-				RETURNING token, exam_id::text, room_id::text, is_active`,
-				tok, tenantID, examID, roomID,
-			).Scan(&t.Token, &t.ExamID, &t.RoomID, &t.IsActive)
-			if err == nil {
-				return nil
-			}
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue // tabrakan kode: coba lagi
-			}
-			return err
-		}
-		return errors.New("gagal membuat token unik, coba lagi")
+		var err error
+		t, err = issueTokenTx(ctx, tx, tenantID, examID, roomID)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &t, nil
+	return t, nil
+}
+
+// issueTokenTx: buat token pada transaksi berjalan (dipakai RegenerateTokens).
+func issueTokenTx(ctx context.Context, tx pgx.Tx, tenantID, examID string, roomID *string) (*Token, error) {
+	var t Token
+	for attempt := 0; attempt < 5; attempt++ {
+		tok := genToken()
+		err := tx.QueryRow(ctx, `
+			INSERT INTO exam_tokens (token, tenant_id, exam_id, room_id)
+			VALUES ($1, $2::uuid, $3::uuid, $4::uuid)
+			ON CONFLICT (token) DO NOTHING
+			RETURNING token, exam_id::text, room_id::text, is_active`,
+			tok, tenantID, examID, roomID,
+		).Scan(&t.Token, &t.ExamID, &t.RoomID, &t.IsActive)
+		if err == nil {
+			return &t, nil
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue // tabrakan kode: coba lagi
+		}
+		return nil, err
+	}
+	return nil, errors.New("gagal membuat token unik, coba lagi")
 }
 
 func (s *Store) ListTokens(ctx context.Context, tenantID, examID string) ([]Token, error) {
@@ -515,6 +523,30 @@ type Assignment struct {
 	TargetType string `json:"target_type"` // class | student
 	ClassID    string `json:"class_id,omitempty"`
 	StudentID  string `json:"student_id,omitempty"`
+}
+
+// ListAssignments: isi awal form penugasan (S10).
+func (s *Store) ListAssignments(ctx context.Context, tenantID, examID string) ([]Assignment, error) {
+	out := []Assignment{}
+	err := s.db.WithTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT target_type, COALESCE(class_id::text, ''), COALESCE(student_id::text, '')
+			FROM exam_assignments WHERE exam_id = $1::uuid
+			ORDER BY target_type, class_id, student_id`, examID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var a Assignment
+			if err := rows.Scan(&a.TargetType, &a.ClassID, &a.StudentID); err != nil {
+				return err
+			}
+			out = append(out, a)
+		}
+		return rows.Err()
+	})
+	return out, err
 }
 
 // SetAssignments mengganti seluruh penugasan lalu resolving ulang peserta:
@@ -575,22 +607,35 @@ func (s *Store) SetAssignments(ctx context.Context, tenantID, examID string, lis
 }
 
 type Participant struct {
-	StudentID    string  `json:"student_id"`
-	StudentCode  string  `json:"student_code"`
-	Name         string  `json:"name"`
-	ClassName    *string `json:"class_name,omitempty"`
-	Source       string  `json:"source"`
-	ExtraTimeSec int     `json:"extra_time_seconds"`
+	StudentID      string  `json:"student_id"`
+	StudentCode    string  `json:"student_code"`
+	Name           string  `json:"name"`
+	ClassName      *string `json:"class_name,omitempty"`
+	Source         string  `json:"source"`
+	ExtraTimeSec   int     `json:"extra_time_seconds"`
+	AttemptStatus  string  `json:"attempt_status,omitempty"` // status attempt terakhir
+	Attempts       int     `json:"attempts"`
+	ViolationCount int     `json:"violations"`
 }
 
 func (s *Store) ListParticipants(ctx context.Context, tenantID, examID string) ([]Participant, error) {
 	out := []Participant{}
 	err := s.db.WithTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT p.student_id::text, s.student_code, s.name, c.name, p.source, p.extra_time_seconds
+			SELECT p.student_id::text, s.student_code, s.name, c.name, p.source, p.extra_time_seconds,
+			       COALESCE(lat.status, ''), COALESCE(cnt.n, 0), COALESCE(lat.violation_count, 0)
 			FROM exam_participants p
 			JOIN students s ON s.id = p.student_id
 			LEFT JOIN classes c ON c.id = s.class_id
+			LEFT JOIN LATERAL (
+				SELECT a.status, a.violation_count FROM attempts a
+				WHERE a.exam_id = p.exam_id AND a.student_id = p.student_id
+				ORDER BY a.attempt_no DESC LIMIT 1
+			) lat ON true
+			LEFT JOIN LATERAL (
+				SELECT count(*) AS n FROM attempts a2
+				WHERE a2.exam_id = p.exam_id AND a2.student_id = p.student_id
+			) cnt ON true
 			WHERE p.exam_id = $1::uuid AND p.tenant_id = $2::uuid
 			ORDER BY s.name`, examID, tenantID)
 		if err != nil {
@@ -599,7 +644,8 @@ func (s *Store) ListParticipants(ctx context.Context, tenantID, examID string) (
 		defer rows.Close()
 		for rows.Next() {
 			var p Participant
-			if err := rows.Scan(&p.StudentID, &p.StudentCode, &p.Name, &p.ClassName, &p.Source, &p.ExtraTimeSec); err != nil {
+			if err := rows.Scan(&p.StudentID, &p.StudentCode, &p.Name, &p.ClassName, &p.Source,
+				&p.ExtraTimeSec, &p.AttemptStatus, &p.Attempts, &p.ViolationCount); err != nil {
 				return err
 			}
 			out = append(out, p)

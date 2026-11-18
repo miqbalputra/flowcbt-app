@@ -78,7 +78,8 @@ export default function WizardPage() {
         close_at: toWIB(draft.close_at),
       };
       const created: Exam = await createExam(payload);
-      navigate("/exams", { state: { created: created.id } });
+      // Langkah Peserta & Publish diteruskan di halaman detail (S10).
+      navigate(`/exams/${created.id}`);
     } catch (e) {
       setError(errorOf(e));
     } finally {
