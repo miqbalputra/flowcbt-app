@@ -9,6 +9,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/hibiken/asynq v0.26.0
 	github.com/jackc/pgx/v5 v5.13.0
+	github.com/redis/go-redis/v9 v9.14.1
 	github.com/xuri/excelize/v2 v2.11.1
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.63.0
@@ -22,7 +23,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/lib/pq v1.10.9 // indirect
-	github.com/redis/go-redis/v9 v9.14.1 // indirect
 	github.com/richardlehane/mscfb v1.0.9 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect

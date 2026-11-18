@@ -11,15 +11,25 @@ import (
 	"time"
 
 	"github.com/flowcbt/backend/internal/platform"
+	questionbank "github.com/flowcbt/backend/internal/questionbank"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrNotFound = errors.New("tidak ditemukan")
 
-type Store struct{ db *platform.DB }
+// Store memegang pool DB, klien bank soal (baca soal versi ujian), dan
+// cache Redis opsional (kosong = nonaktif).
+type Store struct {
+	db    *platform.DB
+	qb    *questionbank.Store
+	cache *QuestionCache
+}
 
-func NewStore(db *platform.DB) *Store { return &Store{db: db} }
+// NewStore: cache boleh nil (dev tanpa Redis).
+func NewStore(db *platform.DB, qb *questionbank.Store, cache *QuestionCache) *Store {
+	return &Store{db: db, qb: qb, cache: cache}
+}
 
 func requireOne(tag pgconn.CommandTag, err error) error {
 	if err != nil {

@@ -17,10 +17,11 @@ import (
 type Handler struct {
 	store *Store
 	audit *audit.Writer
+	auth  *auth.Service
 }
 
-func NewHandler(store *Store, aw *audit.Writer) *Handler {
-	return &Handler{store: store, audit: aw}
+func NewHandler(store *Store, aw *audit.Writer, as *auth.Service) *Handler {
+	return &Handler{store: store, audit: aw, auth: as}
 }
 
 // Mount dipasang pada grup JWT terproteksi (owner/teacher).
@@ -51,6 +52,75 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Post("/exams/{id}/participants/{studentID}/reset-attempts", h.resetAttempts)
 	r.Post("/exams/{id}/participants/{studentID}/force-submit", h.forceSubmit)
 	r.Post("/exams/{id}/participants/{studentID}/kick", h.kickSession)
+}
+
+// MountPublic: rute tanpa JWT — login tamu token (grup publik ber-rate-limit).
+func (h *Handler) MountPublic(r chi.Router) {
+	r.Post("/exams/guest-auth", h.guestAuth)
+}
+
+// MountStudent: rute siswa ber-JWT (grup auth.Middleware + RequireRole("student")).
+func (h *Handler) MountStudent(r chi.Router) {
+	r.Get("/me/exams", h.myExams)
+	r.Post("/exams/{id}/start", h.start)
+}
+
+type guestReq struct {
+	Token string `json:"token"`
+}
+
+func (h *Handler) guestAuth(w http.ResponseWriter, r *http.Request) {
+	var in guestReq
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Token == "" {
+		httpx.ErrorWriter(w, r, httpx.ErrBadRequest("token wajib diisi", nil))
+		return
+	}
+	tenantID, studentID, examID, err := h.store.GuestAuth(r.Context(), in.Token)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	tokens, err := h.auth.IssueForStudent(r.Context(), tenantID, studentID)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"exam_id":       examID,
+		"access_token":  tokens.AccessToken,
+		"refresh_token": tokens.RefreshToken,
+		"expires_in":    tokens.ExpiresIn,
+	})
+}
+
+func (h *Handler) myExams(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	exams, err := h.store.ListStudentExams(r.Context(), c.TenantID, c.StudentID)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, exams)
+}
+
+type startReq struct {
+	DeviceHash string `json:"device_hash"`
+}
+
+// start: siswa mulai/lanjutkan ujian (AC-6 → 409 bila batas tercapai).
+func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	var in startReq
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if in.DeviceHash == "" {
+		in.DeviceHash = "web"
+	}
+	res, err := h.store.StartAttempt(r.Context(), c.TenantID, c.StudentID, chi.URLParam(r, "id"), in.DeviceHash)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, res)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {

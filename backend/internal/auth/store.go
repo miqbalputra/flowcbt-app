@@ -104,6 +104,34 @@ type UserRow struct {
 
 var ErrNotFound = errors.New("tidak ditemukan")
 
+// StudentLoginRow: baris siswa untuk login (S11).
+type StudentLoginRow struct {
+	ID           string
+	TenantID     string
+	Name         string
+	Status       string
+	PasswordHash string
+}
+
+// StudentByLogin: siswa aktif berdasarkan kode sekolah + username
+// (username unik per tenant; tenant ditentukan kode sekolah).
+func (s *Store) StudentByLogin(ctx context.Context, tenantCode, username string) (StudentLoginRow, error) {
+	row := s.System.QueryRow(ctx, `
+		SELECT s.id::text, t.id::text, s.name, s.status, COALESCE(s.password_hash, '')
+		FROM students s
+		JOIN tenants t ON t.id = s.tenant_id
+		WHERE t.code = $1 AND s.username = $2 AND t.status = 'active'`,
+		tenantCode, username)
+	var u StudentLoginRow
+	if err := row.Scan(&u.ID, &u.TenantID, &u.Name, &u.Status, &u.PasswordHash); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return u, ErrNotFound
+		}
+		return u, err
+	}
+	return u, nil
+}
+
 // UserByID membaca user lintas tenant (role sistem) untuk refresh & undangan.
 func (s *Store) UserByID(ctx context.Context, id string) (UserRow, error) {
 	row := s.System.QueryRow(ctx, `

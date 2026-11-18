@@ -82,6 +82,7 @@ func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
 
 	clock := platform.RealClock()
 	jwtm := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
+	authSvc := auth.NewService(&auth.Store{System: db.System}, jwtm, clock)
 	queue := notify.NewQueue(redisAddr(cfg.RedisURL), platform.NewMailerFromEnv())
 	auditw := audit.NewWriter(db.System)
 
@@ -89,8 +90,10 @@ func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
 	strict := httpx.NewRateLimit(10, time.Minute)
 	api.Group(func(pub chi.Router) {
 		pub.Use(strict.Middleware)
-		auth.NewHandler(auth.NewService(&auth.Store{System: db.System}, jwtm, clock)).Mount(pub)
+		auth.NewHandler(authSvc).Mount(pub)
 		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountPublic(pub)
+		examHandler := exam.NewHandler(exam.NewStore(db, questionbank.NewStore(db), exam.NewQuestionCache(redisAddr(cfg.RedisURL))), auditw, authSvc)
+		examHandler.MountPublic(pub) // login tamu token (S11)
 	})
 
 	// Terproteksi JWT: modul tenant. RBAC di satu tempat: owner/guru boleh
@@ -102,7 +105,14 @@ func mountModules(api chi.Router, cfg platform.Config, logger *slog.Logger) {
 		classroomHandler.Mount(prot)
 		student.NewHandler(student.NewStore(db), auditw).Mount(prot)
 		questionbank.NewHandler(questionbank.NewStore(db), platform.NewStorage(), auditw).Mount(prot)
-		exam.NewHandler(exam.NewStore(db), auditw).Mount(prot)
+		examHandler := exam.NewHandler(exam.NewStore(db, questionbank.NewStore(db), exam.NewQuestionCache(redisAddr(cfg.RedisURL))), auditw, authSvc)
+		examHandler.Mount(prot)
+		// Siswa (S11): rute siswa ber-JWT terpisah dari route guru.
+		api.Group(func(stu chi.Router) {
+			stu.Use(auth.Middleware(jwtm))
+			stu.Use(auth.RequireRole("student"))
+			examHandler.MountStudent(stu)
+		})
 		user.NewHandler(user.NewService(user.NewStore(db.System), queue, auditw, clock)).MountTenant(prot)
 	})
 

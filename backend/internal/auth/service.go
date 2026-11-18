@@ -125,6 +125,31 @@ func (s *Service) Login(ctx context.Context, email, password string) (*Tokens, e
 	return s.issueTokens(ctx, "user", u.ID, deref(u.TenantID), u.Role)
 }
 
+// LoginStudent (S11, FR-1.3): akun siswa — kode sekolah + username + password.
+// Anti-enum: pesan salah sama untuk semua kegagalan kredensial.
+func (s *Service) LoginStudent(ctx context.Context, tenantCode, username, password string) (*Tokens, error) {
+	if strings.TrimSpace(tenantCode) == "" || strings.TrimSpace(username) == "" || password == "" {
+		return nil, ErrInvalidCreds
+	}
+	su, err := s.store.StudentByLogin(ctx, tenantCode, username)
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrInvalidCreds
+	}
+	if err != nil {
+		return nil, err
+	}
+	if su.Status != "active" || su.PasswordHash == "" || !VerifyPassword(password, su.PasswordHash) {
+		return nil, ErrInvalidCreds
+	}
+	return s.issueTokens(ctx, "student", su.ID, su.TenantID, "student")
+}
+
+// IssueForStudent: terbitkan pasangan token untuk siswa yang sudah terverifikasi
+// lewat jalur lain (mis. login tamu berbasis token ujian di modul exam).
+func (s *Service) IssueForStudent(ctx context.Context, tenantID, studentID string) (*Tokens, error) {
+	return s.issueTokens(ctx, "student", studentID, tenantID, "student")
+}
+
 type Tokens struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`

@@ -27,7 +27,39 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Post("/auth/register", h.register)
 	r.Post("/auth/verify-email", h.verifyEmail)
 	r.Post("/auth/login", h.login)
+	r.Post("/auth/student-login", h.studentLogin)
 	r.Post("/auth/refresh", h.refresh)
+}
+
+type studentLoginReq struct {
+	SchoolCode string `json:"school_code"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+}
+
+// studentLogin: akun siswa (S11) — rate limit mengikuti grup publik.
+func (h *Handler) studentLogin(w http.ResponseWriter, r *http.Request) {
+	var req studentLoginReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.ErrorWriter(w, r, httpx.ErrBadRequest("payload tidak valid", nil))
+		return
+	}
+	tokens, err := h.svc.LoginStudent(r.Context(), req.SchoolCode, req.Username, req.Password)
+	if err != nil {
+		if errors.Is(err, ErrInvalidCreds) {
+			httpx.ErrorWriter(w, r, httpx.AppErr(401, "INVALID_CREDENTIALS",
+				"kode sekolah, username, atau password salah", nil))
+			return
+		}
+		var locked *LockedError
+		if errors.As(err, &locked) {
+			httpx.ErrorWriter(w, r, httpx.AppErr(429, "ACCOUNT_LOCKED", err.Error(), nil))
+			return
+		}
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, tokens)
 }
 
 type registerReq struct {
