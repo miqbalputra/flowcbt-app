@@ -63,6 +63,8 @@ func (h *Handler) MountPublic(r chi.Router) {
 func (h *Handler) MountStudent(r chi.Router) {
 	r.Get("/me/exams", h.myExams)
 	r.Post("/exams/{id}/start", h.start)
+	r.Get("/attempts/{id}", h.getAttempt)
+	r.Post("/attempts/{id}/answers:sync", h.syncAnswers)
 }
 
 type guestReq struct {
@@ -121,6 +123,33 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, res)
+}
+
+// syncAnswers: kirim jawaban batch (S12) — dipanggil berkala klien.
+func (h *Handler) syncAnswers(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	var in SyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorWriter(w, r, httpx.ErrBadRequest("payload tidak valid", nil))
+		return
+	}
+	res, err := h.store.SyncAnswers(r.Context(), c.TenantID, c.StudentID, chi.URLParam(r, "id"), in)
+	if err != nil {
+		httpx.ErrorWriter(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, res)
+}
+
+// getAttempt: muat ulang pengerjaan (refresh/sesi baru).
+func (h *Handler) getAttempt(w http.ResponseWriter, r *http.Request) {
+	c := auth.FromContext(r.Context())
+	st, err := h.store.GetAttemptState(r.Context(), c.TenantID, c.StudentID, chi.URLParam(r, "id"))
+	if err != nil {
+		httpx.ErrorWriter(w, r, notFoundOrErr(err))
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, st)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {

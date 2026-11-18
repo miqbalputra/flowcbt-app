@@ -115,6 +115,7 @@ export interface ClientQuestion {
   body: string;
   points: number;
   options?: { id: string; html: string }[];
+  matching?: { left: { id: string; html: string }[]; right: { id: string; html: string }[] };
   shuffle_options: boolean;
   media_ids?: string[];
 }

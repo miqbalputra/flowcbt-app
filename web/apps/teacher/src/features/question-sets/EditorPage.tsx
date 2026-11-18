@@ -290,6 +290,7 @@ function QuestionCard({
         try {
           await updateQuestion(q.id, {
             type: draft.type, body: draft.body, options: draft.options,
+            matching_options: draft.matching_options ?? null,
             answer_key: draft.answer_key, rubric: draft.rubric, points: draft.points,
             scoring_mode: draft.scoring_mode, explanation_html: draft.explanation_html || "",
           });
@@ -439,32 +440,60 @@ function OptionsEditor({ q, onPatch }: { q: Question; onPatch: (p: Partial<Quest
   );
 }
 
-type Pair = { left: string; right: string; correct: boolean };
-
-// Menjodohkan: pasangan di answer_key.pairs [{left,right}] (konvensi views.tsx).
+// Menjodohkan: pilihan tersimpan di matching_options {left,right},
+// pasangan benar di answer_key.pairs (id ↔ id) — S12. Edit per baris teks.
 function MatchingEditor({ q, onPatch }: { q: Question; onPatch: (p: Partial<Question>) => void }) {
-  const key = (q.answer_key ?? {}) as { pairs?: Pair[] };
+  const mo = q.matching_options ?? { left: [], right: [] };
+  const key = (q.answer_key ?? {}) as { pairs?: { left: string; right: string }[] };
   const pairs = Array.isArray(key.pairs) ? key.pairs : [];
-  const setPairs = (next: Pair[]) => onPatch({ answer_key: { ...key, pairs: next } });
+
+  const write = (nextPairs: { left: string; right: string }[],
+                  left: { id: string; text: string }[], right: { id: string; text: string }[]) => {
+    onPatch({ matching_options: { left, right }, answer_key: { pairs: nextPairs } });
+  };
+
+  const textOf = (list: {id:string;text:string}[], id: string) =>
+    list.find((x) => x.id === id)?.text ?? "";
+
+  const editText = (i: number, side: "left" | "right", text: string) => {
+    const p = pairs[i];
+    if (!p) return;
+    const list = (side === "left" ? mo.left : mo.right).map((x) => (x.id === p[side] ? { ...x, text } : x));
+    write(pairs, side === "left" ? list : mo.left, side === "right" ? list : mo.right);
+  };
+
+  const addPair = () => {
+    const lid = `L${Date.now().toString(36)}${pairs.length}L`;
+    const rid = `R${Date.now().toString(36)}${pairs.length}R`;
+    write([...pairs, { left: lid, right: rid }],
+      [...mo.left, { id: lid, text: "" }], [...mo.right, { id: rid, text: "" }]);
+  };
+
+  const removePair = (i: number) => {
+    const p = pairs[i];
+    if (!p) return;
+    const usedLeft = pairs.some((x, j) => j !== i && x.left === p.left);
+    const usedRight = pairs.some((x, j) => j !== i && x.right === p.right);
+    write(pairs.filter((_, j) => j !== i),
+      usedLeft ? mo.left : mo.left.filter((x) => x.id !== p.left),
+      usedRight ? mo.right : mo.right.filter((x) => x.id !== p.right));
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <span className="text-sm text-muted">Pasangan kiri → kanan yang benar.</span>
       {pairs.map((p, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <input value={p.left} placeholder={`Kiri ${i + 1}`}
-                 onChange={(e) => setPairs(pairs.map((x, j) => (j === i ? { ...x, left: e.target.value } : x)))}
-                 className="input flex-1" />
+        <div key={p.left} className="flex items-center gap-2">
+          <input value={textOf(mo.left, p.left)} placeholder={`Kiri ${i + 1}`}
+                 onChange={(e) => editText(i, "left", e.target.value)} className="input flex-1" />
           <span aria-hidden>→</span>
-          <input value={p.right} placeholder={`Kanan ${i + 1}`}
-                 onChange={(e) => setPairs(pairs.map((x, j) => (j === i ? { ...x, right: e.target.value } : x)))}
-                 className="input flex-1" />
+          <input value={textOf(mo.right, p.right)} placeholder={`Kanan ${i + 1}`}
+                 onChange={(e) => editText(i, "right", e.target.value)} className="input flex-1" />
           <button type="button" className="btn-ghost touch-target"
-                  onClick={() => setPairs(pairs.filter((_, j) => j !== i))}
-                  aria-label={`hapus pasangan ${i + 1}`}>Hapus</button>
+                  onClick={() => removePair(i)} aria-label={`hapus pasangan ${i + 1}`}>Hapus</button>
         </div>
       ))}
-      <button type="button" className="btn-ghost self-start touch-target"
-              onClick={() => setPairs([...pairs, { left: "", right: "", correct: true }])}>
+      <button type="button" className="btn-ghost self-start touch-target" onClick={addPair}>
         + Pasangan
       </button>
     </div>

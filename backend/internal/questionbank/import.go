@@ -166,19 +166,36 @@ func rowToQuestion(r fileio.QuestionRowParsed) (*Question, string) {
 		q.AnswerKey = answerKeyLetters(opts)
 
 	case TypeMatching:
-		pairs := []map[string]any{}
-		for _, p := range fileio.SplitPipe(r.Key) {
+		// Bentuk data: options_json = {left:[{id,text}], right:[{id,text}]},
+		// kunci = {pairs:[{left:"idL", right:"idR"}]} (S12 — siswa menjodohkan
+		// id pilihan; teks pilihan bukan kunci).
+		rawPairs := fileio.SplitPipe(r.Key)
+		if len(rawPairs) < 2 {
+			return nil, "menjodohkan butuh minimal 2 pasangan di kolom Kunci (kiri=kanan|...)"
+		}
+		lefts, rights, pairs := []map[string]any{}, []map[string]any{}, []map[string]any{}
+		seenLeft, seenRight := map[string]string{}, map[string]string{}
+		for i, p := range rawPairs {
 			sides := strings.SplitN(p, "=", 2)
 			if len(sides) != 2 || strings.TrimSpace(sides[0]) == "" || strings.TrimSpace(sides[1]) == "" {
 				return nil, "pasangan menjodohkan harus format kiri=kanan dipisah \"|\""
 			}
-			pairs = append(pairs, map[string]any{
-				"left": sides[0], "right": sides[1], "correct": true,
-			})
+			lid, rid := "L"+strconv.Itoa(i+1), "R"+strconv.Itoa(i+1)
+			if id, ok := seenLeft[sides[0]]; ok {
+				lid = id
+			} else {
+				seenLeft[sides[0]] = lid
+				lefts = append(lefts, map[string]any{"id": lid, "text": sides[0]})
+			}
+			if id, ok := seenRight[sides[1]]; ok {
+				rid = id
+			} else {
+				seenRight[sides[1]] = rid
+				rights = append(rights, map[string]any{"id": rid, "text": sides[1]})
+			}
+			pairs = append(pairs, map[string]any{"left": lid, "right": rid})
 		}
-		if len(pairs) < 2 {
-			return nil, "menjodohkan butuh minimal 2 pasangan di kolom Kunci"
-		}
+		q.MatchingOptions = map[string]any{"left": lefts, "right": rights}
 		q.AnswerKey = map[string]any{"pairs": pairs}
 
 	case TypeShortAnswer:

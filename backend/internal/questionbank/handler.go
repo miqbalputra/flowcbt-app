@@ -148,6 +148,7 @@ type questionReq struct {
 	Type                string   `json:"type"`
 	Body                string   `json:"body"`
 	Options             []Option `json:"options"`
+	MatchingOptions     any      `json:"matching_options"` // menjodohkan: {left,right}
 	AnswerKey           any      `json:"answer_key"`
 	Rubric              any      `json:"rubric"`
 	Points              float64  `json:"points"`
@@ -247,7 +248,7 @@ func (h *Handler) updateQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = h.store.UpdateQuestion(r.Context(), c.TenantID, chi.URLParam(r, "id"),
-		strPtr(req.StimulusID), req.Body, req.Options, req.AnswerKey, req.Rubric,
+		strPtr(req.StimulusID), req.Body, req.Options, req.MatchingOptions, req.AnswerKey, req.Rubric,
 		req.Points, req.ScoringMode, req.PartialWrongPenalty, req.ShuffleOptions,
 		req.ExplanationHTML)
 	if err != nil {

@@ -62,10 +62,11 @@ type Question struct {
 	StimulusID          *string  `json:"stimulus_id,omitempty"`
 	OrderNo             int      `json:"order_no"`
 	Type                string   `json:"type"`
-	Body                string   `json:"body"`              // rich text tersanitasi
-	Options             []Option `json:"options,omitempty"` // mcq/mcq_complex/matching
-	AnswerKey           any      `json:"-"`                 // jsonb; TIDAK pernah ke siswa
-	Rubric              any      `json:"rubric,omitempty"`  // uraian
+	Body                string   `json:"body"`                       // rich text tersanitasi
+	Options             []Option `json:"options,omitempty"`          // mcq/mcq_complex; matching: lihat MatchingOptions
+	MatchingOptions     any      `json:"matching_options,omitempty"` // matching: {left:[{id,text}], right:[...]}
+	AnswerKey           any      `json:"-"`                          // jsonb; TIDAK pernah ke siswa
+	Rubric              any      `json:"rubric,omitempty"`           // uraian
 	Points              float64  `json:"points"`
 	ScoringMode         string   `json:"scoring_mode"` // all_or_nothing | partial
 	PartialWrongPenalty bool     `json:"partial_wrong_penalty"`

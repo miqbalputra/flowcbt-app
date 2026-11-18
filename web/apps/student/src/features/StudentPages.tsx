@@ -237,35 +237,3 @@ export function StartPage() {
     </Shell>
   );
 }
-
-// ---- pengerjaan (kerangka S11; butir soal penuh di S12) ----
-
-export function AttemptPage() {
-  const { id = "" } = useParams();
-  const [res] = useState<StartResult | null>(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem("flowcbt:attempt") ?? "null");
-    } catch {
-      return null;
-    }
-  });
-  if (!res || res.attempt_id !== id) {
-    return (
-      <Shell title="Pengerjaan">
-        <h1 className="text-xl font-semibold">Sesi tidak ditemukan</h1>
-        <p className="mt-2 text-sm text-muted">Mulai ulang dari daftar ujian.</p>
-      </Shell>
-    );
-  }
-  return (
-    <Shell title="Pengerjaan">
-      <h1 className="text-xl font-semibold">{res.exam_name}</h1>
-      <p className="mt-2 text-sm text-muted">
-        {res.questions.length} soal · tenggat {new Date(res.deadline_at).toLocaleTimeString("id-ID")}
-      </p>
-      <p className="mt-6 text-sm text-muted">
-        Halaman butir soal (5 tipe, timer, navigasi) diisi pada Sprint S12.
-      </p>
-    </Shell>
-  );
-}

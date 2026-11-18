@@ -32,22 +32,28 @@ export function OptionsView({ q, shuffle }: { q: Question; shuffle?: boolean }) 
 }
 
 export function MatchingView({ q }: { q: Question }) {
-  // Menjodohkan tampil tap-pilih di mobile & drag di editor (PRD 11);
-  // di sini hanya menampilkan pasangan, interaksi di EditorPage.
+  // Pasangan benar (ids) dirender sebagai teks via matching_options.
   const rows = questionPairs(q);
+  if (rows.length === 0) return <div className="matching"><p className="text-sm text-muted">Belum ada pasangan.</p></div>;
   return (
     <div className="matching">
       {rows.map((p, i) => (
-        <div key={i} className="pair" data-correct={p.correct}>
-          <span className="pair-html" dangerouslySetInnerHTML={{ __html: p.left }} /> →{" "}
-          <span className="pair-html" dangerouslySetInnerHTML={{ __html: p.right }} />
+        <div key={p.left + i} className="pair" data-correct={p.correct}>
+          <span className="pair-html">{pairText(q, p.left)}</span> →{" "}
+          <span className="pair-html">{pairText(q, p.right)}</span>
         </div>
       ))}
     </div>
   );
 }
 
-type Pair = { left: string; right: string; correct: boolean };
+type Pair = { left: string; right: string; correct?: boolean };
+
+function pairText(q: Question, id: string): string {
+  const mo = q.matching_options;
+  const all = [...(mo?.left ?? []), ...(mo?.right ?? [])];
+  return all.find((x) => x.id === id)?.text ?? id;
+}
 
 // Pasangan menjodohkan disimpan di answer_key sebagai [{left,right}...].
 export function questionPairs(q: Question): Pair[] {

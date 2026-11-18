@@ -20,6 +20,7 @@ export interface Question {
   stimulus_id?: string | null;
   body: string; // rich text tersanitasi
   options?: Option[];
+  matching_options?: { left: { id: string; text: string }[]; right: { id: string; text: string }[] } | null;
   answer_key?: unknown; // TIDAK dikirim ke klien siswa; hanya untuk editor guru
   rubric?: unknown;
   points: number;

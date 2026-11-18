@@ -1,8 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { ThemeToggle } from "flowcbt-ui";
-import {
-  AttemptPage, ExamsPage, GuestPage, LoginPage, StartPage,
-} from "../features/StudentPages";
+import AttemptPage from "../features/Attempt";
+import { ExamsPage, GuestPage, LoginPage, StartPage } from "../features/StudentPages";
 
 // Klien ujian siswa: satu kolom, tombol besar, mobile-first (PRD 11).
 export default function App() {

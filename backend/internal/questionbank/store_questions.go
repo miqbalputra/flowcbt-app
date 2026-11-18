@@ -106,7 +106,15 @@ func (s *Store) QuestionsOfVersion(ctx context.Context, tenantID, versionID stri
 				return err
 			}
 			if len(optionsJSON) > 0 {
-				_ = json.Unmarshal(optionsJSON, &q.Options)
+				var opts []Option
+				if json.Unmarshal(optionsJSON, &opts) == nil {
+					q.Options = opts
+				} else {
+					// Bentuk menjodohkan: {left:[...], right:[...]}.
+					var mo map[string]any
+					_ = json.Unmarshal(optionsJSON, &mo)
+					q.MatchingOptions = mo
+				}
 			}
 			if len(answerJSON) > 0 && string(answerJSON) != "null" {
 				_ = json.Unmarshal(answerJSON, &q.AnswerKey)
@@ -151,7 +159,13 @@ func insertQuestionTx(ctx context.Context, tx pgx.Tx, draftID string, q Question
 	if q.ScoringMode == "" {
 		q.ScoringMode = "all_or_nothing"
 	}
-	optionsJSON, err := json.Marshal(q.Options)
+	var optionsJSON []byte
+	var err error
+	if q.MatchingOptions != nil {
+		optionsJSON, err = json.Marshal(q.MatchingOptions)
+	} else {
+		optionsJSON, err = json.Marshal(q.Options)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -193,32 +207,43 @@ func insertQuestionTx(ctx context.Context, tx pgx.Tx, draftID string, q Question
 }
 
 // UpdateQuestion: pembaruan penuh dari editor; hanya versi draft (FR-4.8 —
-// soal versi terbit dibekukan). Kolom kosong/nol berarti "tidak berubah"
-// agar autosave parsial tidak menghapus data.
+// soal versi terbit dibekukan). Argumen nil / kosong = "tidak berubah"
+// agar autosave parsial tidak menghapus data. Untuk menjodohkan, pilihan
+// dikirim via matchingOptions ({left:[{id,text}], right:[...]}) dan options
+// dibiarkan nil.
 func (s *Store) UpdateQuestion(ctx context.Context, tenantID, qid string,
-	stimulusID *string, body string, options []Option, answerKey any, rubric any,
+	stimulusID *string, body string, options []Option, matchingOptions any, answerKey any, rubric any,
 	points float64, scoringMode string, partialWrongPenalty, shuffleOptions *bool,
 	explanationHTML string) error {
 
-	optionsJSON, err := json.Marshal(options)
-	if err != nil {
-		return err
-	}
-	if string(optionsJSON) == "null" {
-		optionsJSON = []byte("[]")
+	var optArg any
+	if matchingOptions != nil {
+		b, err := json.Marshal(matchingOptions)
+		if err != nil {
+			return err
+		}
+		optArg = string(b)
+	} else if options != nil {
+		b, err := json.Marshal(options)
+		if err != nil {
+			return err
+		}
+		optArg = string(b)
 	}
 	var answerArg, rubricArg any
 	if answerKey != nil {
-		answerArg, err = json.Marshal(answerKey)
+		b, err := json.Marshal(answerKey)
 		if err != nil {
 			return err
 		}
+		answerArg = string(b)
 	}
 	if rubric != nil {
-		rubricArg, err = json.Marshal(rubric)
+		b, err := json.Marshal(rubric)
 		if err != nil {
 			return err
 		}
+		rubricArg = string(b)
 	}
 	var stimulusArg any
 	if stimulusID != nil && *stimulusID != "" {
@@ -237,7 +262,7 @@ func (s *Store) UpdateQuestion(ctx context.Context, tenantID, qid string,
 			UPDATE questions SET
 				stimulus_id           = COALESCE($2::uuid, stimulus_id),
 				body_html             = CASE WHEN $3 <> '' THEN $3 ELSE body_html END,
-				options_json          = CASE WHEN $4::text <> 'null' THEN $4::jsonb ELSE options_json END,
+				options_json          = COALESCE($4::jsonb, options_json),
 				answer_key_json       = COALESCE($5::jsonb, answer_key_json),
 				rubric_json           = COALESCE($6::jsonb, rubric_json),
 				points                = CASE WHEN $7 > 0 THEN $7 ELSE points END,
@@ -248,7 +273,7 @@ func (s *Store) UpdateQuestion(ctx context.Context, tenantID, qid string,
 				updated_at            = now()
 			WHERE id = $1::uuid
 			  AND set_version_id IN (SELECT id FROM question_set_versions WHERE status = 'draft')`,
-			qid, stimulusArg, body, string(optionsJSON), answerArg, rubricArg,
+			qid, stimulusArg, body, optArg, answerArg, rubricArg,
 			points, scoringMode, partial, shuffle, explanationHTML)
 		return requireOne(tag, err)
 	})

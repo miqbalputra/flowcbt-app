@@ -26,16 +26,24 @@ type ClientOption struct {
 	HTML string `json:"html"`
 }
 
+// MatchingChoices: pilihan menjodohkan untuk siswa — hanya teks, tanpa tanda
+// pasangan benar (kunci tetap di server).
+type MatchingChoices struct {
+	Left  []ClientOption `json:"left"`
+	Right []ClientOption `json:"right"`
+}
+
 type ClientQuestion struct {
-	ID             string         `json:"id"`
-	OrderNo        int            `json:"order_no"`
-	Type           string         `json:"type"`
-	StimulusID     *string        `json:"stimulus_id,omitempty"`
-	Body           string         `json:"body"`
-	Points         float64        `json:"points"`
-	Options        []ClientOption `json:"options,omitempty"`
-	ShuffleOptions bool           `json:"shuffle_options"`
-	MediaIDs       []string       `json:"media_ids,omitempty"`
+	ID             string           `json:"id"`
+	OrderNo        int              `json:"order_no"`
+	Type           string           `json:"type"`
+	StimulusID     *string          `json:"stimulus_id,omitempty"`
+	Body           string           `json:"body"`
+	Points         float64          `json:"points"`
+	Options        []ClientOption   `json:"options,omitempty"`
+	Matching       *MatchingChoices `json:"matching,omitempty"`
+	ShuffleOptions bool             `json:"shuffle_options"`
+	MediaIDs       []string         `json:"media_ids,omitempty"`
 }
 
 // clientQuestions membuang kunci & rubrik sebelum data keluar ke siswa.
@@ -46,11 +54,37 @@ func clientQuestions(qs []questionbank.Question) []ClientQuestion {
 		for _, o := range q.Options {
 			opts = append(opts, ClientOption{ID: o.ID, HTML: o.HTML})
 		}
+		var match *MatchingChoices
+		if mo, ok := q.MatchingOptions.(map[string]any); ok {
+			match = &MatchingChoices{
+				Left:  choiceList(mo["left"]),
+				Right: choiceList(mo["right"]),
+			}
+		}
 		out = append(out, ClientQuestion{
 			ID: q.ID, OrderNo: q.OrderNo, Type: q.Type, StimulusID: q.StimulusID,
-			Body: q.Body, Points: q.Points, Options: opts,
+			Body: q.Body, Points: q.Points, Options: opts, Matching: match,
 			ShuffleOptions: q.ShuffleOptions, MediaIDs: q.MediaIDs,
 		})
+	}
+	return out
+}
+
+// choiceList: [{id,text}] any → []ClientOption; html disihkan kosong.
+func choiceList(v any) []ClientOption {
+	items, ok := v.([]any)
+	if !ok {
+		return []ClientOption{}
+	}
+	out := make([]ClientOption, 0, len(items))
+	for _, it := range items {
+		m, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := m["id"].(string)
+		text, _ := m["text"].(string)
+		out = append(out, ClientOption{ID: id, HTML: text})
 	}
 	return out
 }
