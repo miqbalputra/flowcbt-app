@@ -9,6 +9,7 @@ export interface StoredAttempt extends StartResult {
   attempt_id: string;
   saved_at: number;      // epoch ms
   status: string;        // in_progress | pending_sync | submitted | ...
+  outbox_seq: number;    // sequence_number terakhir keluar (S16)
 }
 
 export interface StoredQuestion extends ClientQuestion {
@@ -59,7 +60,7 @@ export const db = new FlowDB();
 export async function saveAttemptPack(res: StartResult): Promise<void> {
   const now = Date.now();
   await db.transaction("rw", db.attempts, db.questions, async () => {
-    await db.attempts.put({ ...res, saved_at: now, status: "in_progress" });
+    await db.attempts.put({ ...res, saved_at: now, status: "in_progress", outbox_seq: 0 });
     const old = await db.questions.where("attempt_id").equals(res.attempt_id).toArray();
     if (old.length) await db.questions.bulkDelete(old.map((q) => q.id));
     await db.questions.bulkPut(res.questions.map((q) => ({ ...q, attempt_id: res.attempt_id })));

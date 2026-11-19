@@ -7,6 +7,7 @@ import {
   api, errorOf, submitAttempt, type ClientQuestion, type StartResult, type ResultView,
 } from "../lib/api";
 import { loadAttemptPack, saveAttemptPack } from "../lib/db";
+import { enqueue, flushOutbox, startSyncEngine } from "../lib/syncEngine";
 import { Shell } from "./StudentPages";
 
 type AnswerMap = Record<string, { answer: unknown; flagged: boolean }>;
@@ -44,9 +45,6 @@ export default function AttemptPage() {
 
   // Offset jam klien vs server (deadline otoritas server).
   const clockOffset = useRef(0);
-  const seq = useRef(0);
-  const queue = useRef<unknown[]>([]);
-  const syncTimer = useRef<number | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -83,39 +81,20 @@ export default function AttemptPage() {
     return () => window.clearInterval(t);
   }, [deadline]);
 
-  // ---- sync (S12 dasar: online, debounce 800 ms) ----
-  const flush = useCallback(async () => {
-    if (!st || queue.current.length === 0) return;
-    const events = queue.current.splice(0);
-    seq.current += 1;
-    try {
-      await api(`/attempts/${st.attempt_id}/answers:sync`, {
-        method: "POST",
-        body: { seq: seq.current, events },
-      });
-    } catch {
-      // gagal: kembalikan ke depan antrean (attempt ulang tick berikutnya)
-      queue.current = [...events, ...queue.current];
-    }
-  }, [st]);
+  // ---- sinkronisasi (S16): outbox persisten + engine batch 7 dtk /
+  // event online / backoff; antrean dihapus hanya setelah ACK server. ----
+  useEffect(() => {
+    if (!st) return;
+    return startSyncEngine(st.attempt_id);
+  }, [st?.attempt_id]);
 
-  const scheduleSync = useCallback(() => {
-    if (syncTimer.current) window.clearTimeout(syncTimer.current);
-    syncTimer.current = window.setTimeout(() => void flush(), 800);
-  }, [flush]);
-
-  useEffect(() => () => {
-    if (syncTimer.current) window.clearTimeout(syncTimer.current);
-  }, []);
+  const triggerSync = useCallback(() => {
+    void flushOutbox(id).catch(() => {});
+  }, [id]);
 
   const push = useCallback((ev: Record<string, unknown>) => {
-    queue.current.push({
-      client_event_id: crypto.randomUUID(),
-      elapsed_ms: 0,
-      ...ev,
-    });
-    scheduleSync();
-  }, [scheduleSync]);
+    void enqueue(id, ev as Parameters<typeof enqueue>[1]).then(triggerSync).catch(() => {});
+  }, [id, triggerSync]);
 
   const setAnswer = (qid: string, answer: unknown) => {
     setAnswers((prev) => ({ ...prev, [qid]: { answer, flagged: prev[qid]?.flagged ?? false } }));
@@ -135,7 +114,7 @@ export default function AttemptPage() {
     setSubmitting(true);
     try {
       setShowReview(false);
-      await flush();
+      await flushOutbox(st.attempt_id).catch(() => {});
       const view: ResultView = await submitAttempt(st.attempt_id);
       sessionStorage.removeItem("flowcbt:attempt");
       navigate(`/attempt/${st.attempt_id}/done`, { state: view });
@@ -209,7 +188,7 @@ export default function AttemptPage() {
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
         <div className="flex items-center justify-between gap-2">
           <button type="button" className="btn-ghost touch-target" disabled={idx === 0}
-                  onClick={() => { void flush(); setIdx((i) => Math.max(0, i - 1)); }}>
+                  onClick={() => { void flushOutbox(id).catch(() => {}); setIdx((i) => Math.max(0, i - 1)); }}>
             Sebelumnya
           </button>
           <button type="button" className="btn-ghost touch-target"
@@ -219,7 +198,7 @@ export default function AttemptPage() {
           </button>
           {idx < qs.length - 1 ? (
             <button type="button" className="btn-primary touch-target"
-                    onClick={() => { void flush(); setIdx((i) => i + 1); }}>
+                    onClick={() => { void flushOutbox(id).catch(() => {}); setIdx((i) => i + 1); }}>
               Berikutnya
             </button>
           ) : (
