@@ -52,6 +52,9 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Post("/exams/{id}/participants/{studentID}/reset-attempts", h.resetAttempts)
 	r.Post("/exams/{id}/participants/{studentID}/force-submit", h.forceSubmit)
 	r.Post("/exams/{id}/participants/{studentID}/kick", h.kickSession)
+
+	// Koreksi & penyelesaian nilai (S14).
+	h.MountGrading(r)
 }
 
 // MountPublic: rute tanpa JWT — login tamu token (grup publik ber-rate-limit).

@@ -152,3 +152,67 @@ export const toWIB = (dtLocal: string): string => {
   const [h, m] = time.split(":");
   return `${date}T${h}:${m}:00+07:00`;
 };
+
+// ---- koreksi & penyelesaian nilai (S14) ----
+
+export interface GradingQueueItem {
+  attempt_id: string;
+  student_name: string;
+  attempt_no: number;
+  status: string;
+  provisional: boolean;
+  final_score: number | null;
+  needs_grade: number;
+  submitted_at: string | null;
+}
+
+export interface GradingQuestionView {
+  question_id: string;
+  order_no: number;
+  type: string;
+  prompt: string;
+  points: number;
+  rubric: string;
+  answer: unknown;
+  auto_score: number | null;
+  score: number | null;
+  graded_by: string | null;
+  grader_comment: string;
+  override_reason: string;
+  needs_grade: boolean;
+}
+
+export interface GradingDetail {
+  attempt_id: string;
+  exam_id: string;
+  student_name: string;
+  status: string;
+  raw_score: number;
+  max_score: number;
+  final_score: number;
+  provisional: boolean;
+  needs_grade: number;
+  submitted_at: string | null;
+  questions: GradingQuestionView[];
+}
+
+export const gradingQueue = (examId: string) =>
+  api<GradingQueueItem[]>(`/exams/${examId}/grading`);
+
+export const gradingDetail = (attemptId: string) =>
+  api<GradingDetail>(`/attempts/${attemptId}/grading`);
+
+export const setAnswerScore = (
+  attemptId: string, questionId: string,
+  score: number, comment?: string, overrideReason?: string,
+) =>
+  api<GradingDetail>(`/attempts/${attemptId}/grading/${questionId}`, {
+    method: "POST",
+    body: { score, comment, reason: overrideReason ?? "" },
+  });
+
+export const regrade = (attemptId: string) =>
+  api<{ regraded: number }>(`/attempts/${attemptId}/regrade`, { method: "POST", body: {} });
+
+export const releaseScores = (examId: string) =>
+  api<{ status: "released" }>(`/exams/${examId}/release-scores`, { method: "POST", body: {} });

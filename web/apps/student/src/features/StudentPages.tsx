@@ -2,6 +2,7 @@
 // tata tertib & mulai. Mobile-first: satu kolom maks 480 px, target sentuh besar.
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { ThemeToggle } from "flowcbt-ui";
 import {
   ApiError, clearTokens, errorOf, getAccessToken, getResult, guestAuth, myExams, setTokens,
   startExam, studentLogin, type ResultView, type StartResult, type StudentExam,
@@ -13,6 +14,7 @@ export function Shell({ title, children }: { title?: string; children: React.Rea
     <div className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-4 py-6">
       <header className="mb-4 flex items-center justify-between">
         <span className="font-bold">FlowCBT</span>
+        <ThemeToggle />
         {title && <span className="text-sm text-muted">{title}</span>}
       </header>
       {children}

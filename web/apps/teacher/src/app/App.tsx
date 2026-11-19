@@ -12,6 +12,8 @@ import StudentsPage from "../features/students/StudentsPage";
 import ExamsPage from "../features/exams/ExamsPage";
 import WizardPage from "../features/exams/WizardPage";
 import ExamDetailPage from "../features/exams/ExamDetailPage";
+import GradingQueuePage from "../features/exams/GradingQueuePage";
+import GradingDetailPage from "../features/exams/GradingDetailPage";
 
 // Placeholder per peta halaman (PRD 11.1); diisi fitur nyata mulai Sprint S3–S4.
 const PAGES = [
@@ -45,6 +47,8 @@ export default function App() {
                   <Route path="/exams" element={<ExamsPage />} />
                   <Route path="/exams/new" element={<WizardPage />} />
                   <Route path="/exams/:id" element={<ExamDetailPage />} />
+                  <Route path="/exams/:id/grading" element={<GradingQueuePage />} />
+                  <Route path="/grading/:id" element={<GradingDetailPage />} />
                   {PAGES.filter((p) => !p.path.startsWith("/settings") && p.path !== "/students/*" && !p.path.startsWith("/question-sets") && !p.path.startsWith("/exams")).map((p) => (
                     <Route key={p.path} path={p.path} element={<Placeholder title={p.title} />} />
                   ))}
