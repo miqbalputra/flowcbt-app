@@ -7,8 +7,9 @@ import {
   api, errorOf, submitAttempt, type ClientQuestion, type StartResult, type ResultView,
 } from "../lib/api";
 import { loadAttemptPack, saveAttemptPack } from "../lib/db";
-import { enqueue, flushOutbox, startSyncEngine } from "../lib/syncEngine";
+import { enqueue, flushOutbox, startSyncEngine, markPendingSubmit } from "../lib/syncEngine";
 import { Shell } from "./StudentPages";
+import ConnBadge from "./ConnBadge";
 
 type AnswerMap = Record<string, { answer: unknown; flagged: boolean }>;
 
@@ -74,9 +75,14 @@ export default function AttemptPage() {
   }, [st?.deadline_at]);
 
   useEffect(() => {
-    if (deadline === null) return;
+    if (deadline === null) {
+      return;
+    }
+    // Jangkar monotonic (S17): tahan lompatan jam sistem.
+    const remainingMs = Math.max(0, deadline - Date.now());
+    const perf0 = performance.now();
     const t = window.setInterval(() => {
-      setTimeLeft(Math.max(0, Math.floor((deadline - Date.now()) / 1000)));
+      setTimeLeft(Math.max(0, Math.floor((remainingMs - (performance.now() - perf0)) / 1000)));
     }, 250);
     return () => window.clearInterval(t);
   }, [deadline]);
@@ -119,7 +125,13 @@ export default function AttemptPage() {
       sessionStorage.removeItem("flowcbt:attempt");
       navigate(`/attempt/${st.attempt_id}/done`, { state: view });
     } catch (e) {
-      setError(errorOf(e));
+      if (!navigator.onLine || e instanceof TypeError) {
+        // Offline (AC-4): jawaban aman di outbox; tandai pemulihan.
+        await markPendingSubmit(st.attempt_id);
+        setError("Sedang offline — jawaban terakhir aman dan otomatis dikirim saat kembali online.");
+      } else {
+        setError(errorOf(e));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -156,6 +168,7 @@ export default function AttemptPage() {
                 style={{ background: timeCritical ? "var(--color-danger, #b91c1c)" : "var(--color-bg-muted)",
                          color: timeCritical ? "#fff" : "inherit" }}>
             {timeLeft === null ? "--:--" : fmtTime(timeLeft)}
+            <ConnBadge />
           </span>
         </div>
         <p className="text-xs text-muted">

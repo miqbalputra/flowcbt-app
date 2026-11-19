@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ThemeToggle } from "flowcbt-ui";
 import { saveAttemptMedia, saveAttemptPack } from "../lib/db";
+import { recoverPendingSubmits } from "../lib/syncEngine";
 import {
   ApiError, clearTokens, errorOf, getAccessToken, getResult, guestAuth, myExams, setTokens,
   startExam, studentLogin, type ResultView, type StartResult, type StudentExam,
@@ -141,6 +142,23 @@ export function ExamsPage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Pemulihan submit offline (S17, AC-4): begitu terpasang & tiap kembali
+  // online, kirim semua attempt yang tertunda lalu segarkan daftar.
+  useEffect(() => {
+    const attemptRecover = async () => {
+      try {
+        const done = await recoverPendingSubmits();
+        if (done > 0) void load();
+      } catch {
+        // diabaikan — percobaan berikutnya saat event online
+      }
+    };
+    void attemptRecover();
+    const onOnline = () => { void attemptRecover(); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [load]);
 
   const fmtRange = (x: StudentExam) =>
     [x.open_at && `buka ${new Date(x.open_at).toLocaleString("id-ID")}`,

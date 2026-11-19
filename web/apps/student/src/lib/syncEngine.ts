@@ -107,3 +107,31 @@ export function startSyncEngine(attemptId: string, baseIntervalMs = 7000): () =>
     window.removeEventListener("online", onOnline);
   };
 }
+
+/** AC-4: submit tertunda karena jaringan mati — status pengerjaan
+ * pending_sync; engine outbox tetap mengantre jawaban terakhir. */
+export async function markPendingSubmit(attemptId: string): Promise<void> {
+  await db.attempts.update(attemptId, { status: "pending_sync" });
+}
+
+/** Pemulihan pulih (S17, skenario 10.3): kirimi semua attempt
+ * pending_sync begitu online ulang — flush lalu submit offline_sync. */
+export async function recoverPendingSubmits(): Promise<number> {
+  const all = await db.attempts.toArray();
+  let done = 0;
+  for (const attempt of all) {
+    if (attempt.status !== "pending_sync") continue;
+    try {
+      await flushOutbox(attempt.attempt_id).catch(() => {});
+      await api(`/attempts/${attempt.attempt_id}/submit`, {
+        method: "POST",
+        body: { submit_reason: "offline_sync" },
+      });
+      await db.attempts.update(attempt.attempt_id, { status: "submitted" });
+      done += 1;
+    } catch {
+      // masih offline: dicoba lagi pada event online berikutnya
+    }
+  }
+  return done;
+}

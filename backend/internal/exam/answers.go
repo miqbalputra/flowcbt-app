@@ -39,6 +39,8 @@ type SyncResponse struct {
 	ServerTime       string            `json:"server_time"`
 }
 
+const eventTolerance = 10 * time.Second
+
 var allowedEventTypes = map[string]bool{
 	"answer": true, "flag": true, "nav": true,
 	"focus_lost": true, "online": true, "offline": true, "sync": true,
@@ -89,7 +91,7 @@ func (s *Store) SyncAnswers(ctx context.Context, tenantID, ownerStudentID, attem
 		if status != "in_progress" {
 			return httpx.AppErr(409, "ATTEMPT_CLOSED", "percobaan sudah berakhir", nil)
 		}
-		afterDeadline := now.After(deadline)
+		afterDeadline := now.After(deadline.Add(eventTolerance))
 
 		// 2. Soal yang sah untuk attempt ini (anti injeksi question_id).
 		validQuestions := map[string]bool{}
