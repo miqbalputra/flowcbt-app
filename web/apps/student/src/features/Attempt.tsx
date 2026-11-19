@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   api, errorOf, submitAttempt, type ClientQuestion, type StartResult, type ResultView,
 } from "../lib/api";
+import { loadAttemptPack, saveAttemptPack } from "../lib/db";
 import { Shell } from "./StudentPages";
 
 type AnswerMap = Record<string, { answer: unknown; flagged: boolean }>;
@@ -53,12 +54,18 @@ export default function AttemptPage() {
         const fresh = await api<AttemptState>(`/attempts/${id}`);
         clockOffset.current = Date.parse(fresh.server_time) - Date.now();
         setSt(fresh);
+        void saveAttemptPack(fresh).catch(() => {});
         setAnswers(Object.fromEntries(
           Object.entries(fresh.answers ?? {}).map(([qid, a]) => [qid, { answer: a.answer, flagged: a.flagged }]),
         ));
-      } catch (e) {
-        // Sesi dari sessionStorage bisa sudah usang — coba lanjut via start ulang.
-        setError(errorOf(e));
+      } catch {
+        // Offline: pulihkan sesi dari IndexedDB (paket pra-muat S15).
+        const pack = await loadAttemptPack(id);
+        if (pack) {
+          setSt({ ...pack, status: "in_progress", answers: {} });
+        } else {
+          setError("Tidak dapat memuat percobaan. Hubungkan internet sekali untuk memuat paket.");
+        }
       }
     })();
   }, [id]);

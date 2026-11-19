@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ThemeToggle } from "flowcbt-ui";
+import { saveAttemptMedia, saveAttemptPack } from "../lib/db";
 import {
   ApiError, clearTokens, errorOf, getAccessToken, getResult, guestAuth, myExams, setTokens,
   startExam, studentLogin, type ResultView, type StartResult, type StudentExam,
@@ -207,16 +208,28 @@ export function StartPage() {
   const [agree, setAgree] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pct, setPct] = useState<number | null>(null);
 
   const begin = async () => {
     setBusy(true);
+    setPct(0);
     try {
       const res: StartResult = await startExam(id);
-      // Soal & deadline dipindah ke halaman pengerjaan via sessionStorage (S12 mengganti dengan store).
+      setPct(30);
+      await saveAttemptPack(res);
+      setPct(60);
+      try {
+        await saveAttemptMedia(res);
+      } catch {
+        throw new Error("media");
+      }
+      setPct(100);
       sessionStorage.setItem("flowcbt:attempt", JSON.stringify(res));
       navigate(`/attempt/${res.attempt_id}`);
     } catch (e) {
-      setError(errorOf(e));
+      setError(e instanceof Error && e.message === "media"
+        ? "Gagal mengunduh media. Periksa koneksi, lalu coba lagi."
+        : errorOf(e));
     } finally {
       setBusy(false);
     }
@@ -234,8 +247,21 @@ export function StartPage() {
                className="mt-0.5 size-5" />
         <span>Saya membaca dan menyetujui tata tertib.</span>
       </label>
-      <button type="button" className="btn-primary touch-target w-full" disabled={!agree || busy} onClick={() => void begin()}>
-        {busy ? "Menyiapkan…" : "Mulai Ujian"}
+      {pct !== null && pct < 100 && (
+        <div className="mb-3" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+          <div className="h-2 w-full overflow-hidden rounded" style={{ background: "var(--color-border)" }}>
+            <div className="h-2" style={{ width: `${pct}%`, background: "var(--color-primary, #2563eb)" }} />
+          </div>
+          <p className="mt-1 text-sm text-muted">Memuat paket soal… {Math.round(pct)}%</p>
+        </div>
+      )}
+      <button
+        type="button"
+        className="btn-primary touch-target w-full"
+        disabled={!agree || busy || (pct !== null && pct < 100)}
+        onClick={() => void begin()}
+      >
+        {busy ? "Menyiapkan…" : pct !== null && pct < 100 ? "Memuat paket…" : "Mulai Ujian"}
       </button>
     </Shell>
   );
